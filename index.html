@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mesa de Trabajo</title>
+<!-- v2: fix CORS — todas las llamadas a GAS usan POST + Content-Type: text/plain -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗂️</text></svg>">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.js"></script>
@@ -625,7 +626,12 @@ a { color: inherit; text-decoration: none; }
 <div id="toast"></div>
 
 <!-- ══════════════════════════════════════════════
-     JAVASCRIPT
+     JAVASCRIPT  — v2
+     CORS FIX: todas las llamadas a GAS usan POST
+     con Content-Type: text/plain para evitar el
+     preflight OPTIONS que GAS no soporta.
+     La URL del Web App va solo en el body JSON,
+     nunca en query params (evita truncamiento).
 ══════════════════════════════════════════════ -->
 <script>
 'use strict';
@@ -633,23 +639,55 @@ a { color: inherit; text-decoration: none; }
 /* ──────────────────────────────────────────────
    CONFIGURACIÓN — EDITAR ANTES DE PUBLICAR
 ────────────────────────────────────────────── */
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbzhcy1THlO2qwvx8clyaHRN2xAG8hX6rTsXelELjGBA83gm_358f68BHjLJbbX_tTjB/exec'; // ← reemplazá con tu URL de Web App
+const GAS_URL    = 'https://script.google.com/macros/s/AKfycbzhcy1THlO2qwvx8clyaHRN2xAG8hX6rTsXelELjGBA83gm_358f68BHjLJbbX_tTjB/exec';        // ← URL de tu Web App GAS
+const CLIENT_ID  = '985022387906-5h3qtmq6jifdl5jdv77o4amf9nb3mcdn.apps.googleusercontent.com';   // ← OAuth 2.0 Client ID
 
 /* ──────────────────────────────────────────────
    ESTADO GLOBAL
 ────────────────────────────────────────────── */
-let estado = {
-  usuario     : null,   // { email, name, picture }
-  etiqActiva  : null,   // string
-  quill       : null,   // instancia Quill
-  refrescoId  : null,   // setInterval ID
-  datos       : null    // último payload del servidor
+const estado = {
+  usuario    : null,   // { email, nombre, avatar }
+  etiqActiva : null,   // string — etiqueta seleccionada
+  quill      : null,   // instancia Quill
+  refrescoId : null,   // setInterval ID
+  datos      : null    // último payload del servidor
 };
+
+/* ──────────────────────────────────────────────
+   CAPA DE COMUNICACIÓN CON GAS
+   ─────────────────────────────────────────────
+   PROBLEMA: GAS (script.google.com) no envía el
+   header Access-Control-Allow-Origin en respuestas
+   a fetch() GET/POST desde dominios externos.
+   GitHub Pages (datamegashare.github.io) es un
+   dominio externo → el navegador bloquea la resp.
+
+   SOLUCIÓN probada (ver index_agenda.html):
+   · Usar POST con Content-Type: 'text/plain'
+   · Esto evita el "preflight" OPTIONS que GAS
+     no responde correctamente.
+   · El body lleva un JSON stringify-ado como string.
+   · GAS lo recibe en e.postData.contents y lo parsea.
+   · Funciona con doPost(e) en el .gs.
+────────────────────────────────────────────── */
+async function gasPost(payload) {
+  const resp = await fetch(GAS_URL, {
+    method  : 'POST',
+    headers : { 'Content-Type': 'text/plain' },
+    body    : JSON.stringify(payload)
+  });
+  const rawText = await resp.text();
+  try {
+    return JSON.parse(rawText);
+  } catch {
+    throw new Error('Respuesta no-JSON del servidor: ' + rawText.slice(0, 120));
+  }
+}
 
 /* ──────────────────────────────────────────────
    UTILS
 ────────────────────────────────────────────── */
-function mostrarToast(msg, dur = 3000) {
+function mostrarToast(msg, dur = 3200) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.classList.add('show');
@@ -661,7 +699,7 @@ function formatearHora(fechaHoraStr) {
   try {
     const d = new Date(fechaHoraStr.replace(' ', 'T'));
     return d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
-  } catch { return fechaHoraStr.slice(11, 16) || ''; }
+  } catch { return String(fechaHoraStr).slice(11, 16) || ''; }
 }
 
 function fechaHoyFormateada() {
@@ -670,31 +708,31 @@ function fechaHoyFormateada() {
   });
 }
 
-function gasUrl(params) {
-  const q = new URLSearchParams(params).toString();
-  return GAS_URL + (GAS_URL.includes('?') ? '&' : '?') + q;
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 /* ──────────────────────────────────────────────
-   AUTENTICACIÓN GOOGLE
+   AUTENTICACIÓN GOOGLE (GSI)
 ────────────────────────────────────────────── */
 window.onload = function() {
-  // Si ya hay sesión guardada, intentar restaurar
-  const sesionGuardada = sessionStorage.getItem('mesa_usuario');
-  if (sesionGuardada) {
+  // ── Restaurar sesión de sessionStorage ──────
+  const guardada = sessionStorage.getItem('mesa_usuario');
+  if (guardada) {
     try {
-      const u = JSON.parse(sesionGuardada);
-      estado.usuario = u;
+      estado.usuario = JSON.parse(guardada);
       iniciarApp();
       return;
-    } catch {}
+    } catch { sessionStorage.removeItem('mesa_usuario'); }
   }
 
-  // Renderizar botón Google
+  // ── Inicializar Google Identity Services ────
   google.accounts.id.initialize({
-    client_id         : '985022387906-5h3qtmq6jifdl5jdv77o4amf9nb3mcdn.apps.googleusercontent.com', // ← OAuth Client ID
-    callback          : manejarCredencial,
-    auto_select       : true,
+    client_id            : CLIENT_ID,
+    callback             : manejarCredencial,
+    auto_select          : true,
     cancel_on_tap_outside: false
   });
 
@@ -706,40 +744,42 @@ window.onload = function() {
   google.accounts.id.prompt();
 };
 
-function manejarCredencial(response) {
+async function manejarCredencial(response) {
   try {
-    // Decodificar JWT sin librería
-    const payload = JSON.parse(atob(response.credential.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
-    const usuario = {
+    // Decodificar JWT del token de Google (sin librería extra)
+    const b64      = response.credential.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const payload  = JSON.parse(atob(b64));
+    const usuario  = {
       email  : payload.email   || '',
       nombre : payload.name    || '',
       avatar : payload.picture || ''
     };
 
-    // Verificar con el servidor
-    fetch(gasUrl({ action: 'verificar', email: usuario.email }))
-      .then(r => r.json())
-      .then(data => {
-        if (data.autorizado) {
-          estado.usuario = usuario;
-          sessionStorage.setItem('mesa_usuario', JSON.stringify(usuario));
-          iniciarApp();
-        } else {
-          document.getElementById('login-screen').style.display   = 'none';
-          document.getElementById('denied-screen').style.display  = 'flex';
-          document.getElementById('denied-email-display').textContent = usuario.email;
-        }
-      })
-      .catch(() => {
-        // Si falla la verificación de red, dar acceso igualmente
-        // (el servidor filtrará en cada llamada)
-        estado.usuario = usuario;
-        sessionStorage.setItem('mesa_usuario', JSON.stringify(usuario));
-        iniciarApp();
-      });
-  } catch(e) {
-    console.error('Error decodificando credencial:', e);
-    mostrarToast('Error al iniciar sesión. Intentá de nuevo.');
+    // Verificar autorización vía doPost (evita CORS)
+    let autorizado = false;
+    try {
+      const data = await gasPost({ action: 'verificar', email: usuario.email });
+      autorizado = !!data.autorizado;
+    } catch (netErr) {
+      // Si no se puede verificar (URL no configurada aún), permitir igualmente
+      // El servidor filtrará en cada llamada posterior
+      console.warn('No se pudo verificar acceso:', netErr.message);
+      autorizado = true;
+    }
+
+    if (autorizado) {
+      estado.usuario = usuario;
+      sessionStorage.setItem('mesa_usuario', JSON.stringify(usuario));
+      iniciarApp();
+    } else {
+      document.getElementById('login-screen').style.display  = 'none';
+      document.getElementById('denied-screen').style.display = 'flex';
+      document.getElementById('denied-email-display').textContent = usuario.email;
+    }
+
+  } catch (e) {
+    console.error('Error en manejarCredencial:', e);
+    mostrarToast('⚠ Error al iniciar sesión. Intentá de nuevo.');
   }
 }
 
@@ -747,9 +787,11 @@ function cerrarSesion() {
   sessionStorage.removeItem('mesa_usuario');
   estado.usuario = null;
   if (estado.refrescoId) clearInterval(estado.refrescoId);
-  document.getElementById('app').style.display          = 'none';
+  document.getElementById('app').style.display           = 'none';
   document.getElementById('denied-screen').style.display = 'none';
   document.getElementById('login-screen').style.display  = 'flex';
+  // Re-inicializar botón Google
+  google.accounts.id.prompt();
 }
 
 /* ──────────────────────────────────────────────
@@ -759,20 +801,14 @@ function iniciarApp() {
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app').style.display          = 'flex';
 
-  // Avatar y datos de usuario en header
   const av = document.getElementById('hdr-avatar');
   if (estado.usuario.avatar) av.src = estado.usuario.avatar;
 
-  // Fecha de hoy
   document.getElementById('fecha-hoy').textContent = fechaHoyFormateada();
 
-  // Inicializar Quill
   iniciarQuill();
-
-  // Cargar datos
   cargarDatos(false);
 
-  // Refresco automático cada 15 minutos
   if (estado.refrescoId) clearInterval(estado.refrescoId);
   estado.refrescoId = setInterval(() => cargarDatos(false), 15 * 60 * 1000);
 }
@@ -784,9 +820,9 @@ function iniciarQuill() {
   if (estado.quill) return;
 
   estado.quill = new Quill('#quill-editor', {
-    theme  : 'snow',
+    theme      : 'snow',
     placeholder: 'Escribí tu nota acá… (soporta negrita, cursiva, listas)',
-    modules: {
+    modules    : {
       toolbar: [
         ['bold', 'italic', 'underline'],
         [{ list: 'ordered' }, { list: 'bullet' }],
@@ -796,9 +832,8 @@ function iniciarQuill() {
     }
   });
 
-  // Hacer que el contenedor Quill ocupe todo el espacio disponible
-  const host      = document.getElementById('quill-host');
-  const container = host.querySelector('.ql-container');
+  // Dar al contenedor flex height para que se expanda
+  const container = document.querySelector('#quill-host .ql-container');
   if (container) {
     container.style.flex     = '1';
     container.style.overflow = 'auto';
@@ -806,90 +841,74 @@ function iniciarQuill() {
 }
 
 /* ──────────────────────────────────────────────
-   CARGAR DATOS DESDE GAS
+   CARGAR DATOS DESDE GAS (via POST)
 ────────────────────────────────────────────── */
-function cargarDatos(manual = false) {
+async function cargarDatos(manual = false) {
   const btnRef = document.getElementById('btn-refresh');
   const icon   = document.getElementById('refresh-icon');
   btnRef.disabled = true;
   icon.parentElement.classList.add('spin');
 
-  const url = gasUrl({ action: 'getData', email: estado.usuario?.email || '' });
-
-  fetch(url)
-    .then(r => r.json())
-    .then(data => {
-      estado.datos = data;
-      renderizarDatos(data);
-      if (manual) mostrarToast('✓ Datos actualizados');
-    })
-    .catch(err => {
-      console.error('Error cargando datos:', err);
-      if (manual) mostrarToast('⚠ Error al conectar. Revisá la URL de la Web App.');
-    })
-    .finally(() => {
-      btnRef.disabled = false;
-      icon.parentElement.classList.remove('spin');
+  try {
+    const data = await gasPost({
+      action : 'getData',
+      email  : estado.usuario?.email || ''
     });
+
+    estado.datos = data;
+    renderizarDatos(data);
+    if (manual) mostrarToast('✓ Datos actualizados');
+
+  } catch (err) {
+    console.error('Error cargando datos:', err);
+    if (manual) mostrarToast('⚠ Error al conectar. Revisá GAS_URL en el HTML.');
+  } finally {
+    btnRef.disabled = false;
+    icon.parentElement.classList.remove('spin');
+  }
 }
 
 /* ──────────────────────────────────────────────
    RENDERIZADO
 ────────────────────────────────────────────── */
 function renderizarDatos(data) {
-  if (!data.ok) return;
-
+  if (!data || !data.ok) return;
   const cfg = data.config || {};
 
-  // Header
   if (cfg.nombre) {
     document.getElementById('hdr-logo').textContent    = cfg.nombre.toUpperCase();
-    document.getElementById('hdr-nombre').textContent  = '';
     document.getElementById('login-logo').textContent  = cfg.nombre.toUpperCase();
   }
   if (cfg.logoEmoji) {
     document.getElementById('hdr-emoji').textContent   = cfg.logoEmoji;
     document.getElementById('login-emoji').textContent = cfg.logoEmoji;
   }
-
-  // Refrán
   if (data.refran) {
-    document.getElementById('hdr-refran').textContent  = '«' + data.refran + '»';
-    document.getElementById('refran-box').textContent  = '«' + data.refran + '»';
+    const r = '«' + data.refran + '»';
+    document.getElementById('hdr-refran').textContent = r;
+    document.getElementById('refran-box').textContent = r;
   }
 
-  // Etiquetas
-  renderEtiquetas(data.etiquetas || []);
-
-  // Notas de hoy
-  renderNotasHoy(data.notasHoy || []);
-
-  // Toolbar
-  renderToolbar(data.herramientas || []);
+  renderEtiquetas(data.etiquetas    || []);
+  renderNotasHoy(data.notasHoy      || []);
+  renderToolbar(data.herramientas   || []);
 }
 
 function renderEtiquetas(etiquetas) {
   const lista = document.getElementById('etiquetas-list');
   lista.innerHTML = '';
-
   etiquetas.forEach(e => {
-    const chip = document.createElement('button');
+    const chip       = document.createElement('button');
     chip.className   = 'etiq-chip';
     chip.textContent = e;
     chip.onclick     = () => seleccionarEtiqueta(e, chip);
     lista.appendChild(chip);
   });
-
-  // Seleccionar la primera por defecto
-  if (etiquetas.length > 0) {
-    seleccionarEtiqueta(etiquetas[0], lista.firstChild);
-  }
+  if (etiquetas.length > 0) seleccionarEtiqueta(etiquetas[0], lista.firstChild);
 }
 
 function seleccionarEtiqueta(nombre, chip) {
-  // Desmarcar todas
   document.querySelectorAll('.etiq-chip').forEach(c => c.classList.remove('active'));
-  // Marcar esta
   chip.classList.add('active');
   estado.etiqActiva = nombre;
   document.getElementById('etiq-seleccionada').textContent = nombre;
@@ -899,22 +918,22 @@ function renderNotasHoy(notas) {
   const lista = document.getElementById('notas-list');
   lista.innerHTML = '';
 
-  if (!notas || notas.length === 0) {
+  if (!notas.length) {
     lista.innerHTML = `
       <div class="notas-empty">
         <span class="notas-empty-icon">📋</span>
         No hay notas registradas hoy.<br>
         <small style="color:var(--muted);font-size:.72rem;margin-top:6px;display:block">
-          Escribí tu primera nota en el anotador →
+          Escribí tu primera nota en el anotador ←
         </small>
       </div>`;
     return;
   }
 
   notas.forEach(nota => {
-    const card    = document.createElement('div');
-    card.className = 'nota-card';
-    card.innerHTML = `
+    const card       = document.createElement('div');
+    card.className   = 'nota-card';
+    card.innerHTML   = `
       <div class="nota-meta">
         <span class="nota-hora">${formatearHora(nota.fechaHora)}</span>
         <span class="nota-etiq">${escHtml(nota.etiqueta)}</span>
@@ -928,19 +947,19 @@ function renderToolbar(herramientas) {
   const bar = document.getElementById('toolbar');
   bar.innerHTML = '';
 
-  if (herramientas.length === 0) {
+  if (!herramientas.length) {
     bar.innerHTML = '<span style="font-size:.72rem;color:var(--muted)">Configurá las herramientas en la hoja "Herramientas" del Sheet</span>';
     return;
   }
 
   herramientas.forEach(h => {
-    const a        = document.createElement('a');
-    a.className    = 'tool-btn';
-    a.href         = h.url;
-    a.target       = '_blank';
-    a.rel          = 'noopener';
-    a.title        = h.nombre;
-    a.innerHTML    = `
+    const a      = document.createElement('a');
+    a.className  = 'tool-btn';
+    a.href       = h.url;
+    a.target     = '_blank';
+    a.rel        = 'noopener';
+    a.title      = h.nombre;
+    a.innerHTML  = `
       <span class="tool-emoji">${h.emoji || '🔗'}</span>
       <span class="tool-label">${escHtml(h.nombre)}</span>`;
     bar.appendChild(a);
@@ -948,71 +967,52 @@ function renderToolbar(herramientas) {
 }
 
 /* ──────────────────────────────────────────────
-   GUARDAR NOTA
+   GUARDAR NOTA (via POST)
 ────────────────────────────────────────────── */
-function guardarNota() {
-  const btn = document.getElementById('btn-guardar');
-
-  if (!estado.quill) return;
+async function guardarNota() {
+  if (!estado.quill)   return;
   if (!estado.usuario) { mostrarToast('⚠ No estás autenticado.'); return; }
 
-  // Obtener contenido HTML del editor
   const contenidoHtml = estado.quill.getSemanticHTML();
   const textoPlano    = estado.quill.getText().trim();
 
-  if (!textoPlano) {
-    mostrarToast('⚠ La nota está vacía.');
-    return;
-  }
+  if (!textoPlano) { mostrarToast('⚠ La nota está vacía.'); return; }
 
+  const btn      = document.getElementById('btn-guardar');
   const etiqueta = estado.etiqActiva || 'General';
-  const ahora    = new Date().toISOString();
 
-  btn.disabled      = true;
-  btn.textContent   = 'Guardando…';
+  btn.disabled    = true;
+  btn.textContent = 'Guardando…';
 
-  const url = gasUrl({
-    action   : 'guardarNota',
-    email    : estado.usuario.email,
-    etiqueta : etiqueta,
-    contenido: contenidoHtml,
-    fechaHora: ahora
-  });
-
-  fetch(url)
-    .then(r => r.json())
-    .then(data => {
-      if (data.ok) {
-        mostrarToast('✓ Nota guardada · ' + etiqueta);
-        // Limpiar editor
-        estado.quill.setContents([]);
-        // Recargar notas del día
-        cargarDatos(false);
-      } else {
-        mostrarToast('⚠ ' + (data.error || 'Error al guardar'));
-      }
-    })
-    .catch(() => mostrarToast('⚠ Error de red al guardar.'))
-    .finally(() => {
-      btn.disabled    = false;
-      btn.innerHTML   = `
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
-          <polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>
-        </svg>
-        Guardar nota`;
+  try {
+    const data = await gasPost({
+      action   : 'guardarNota',
+      email    : estado.usuario.email,
+      etiqueta : etiqueta,
+      contenido: contenidoHtml,
+      fechaHora: new Date().toISOString()
     });
-}
 
-/* ──────────────────────────────────────────────
-   UTILS
-────────────────────────────────────────────── */
-function escHtml(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    if (data.ok) {
+      mostrarToast('✓ Nota guardada · ' + etiqueta);
+      estado.quill.setContents([]);
+      cargarDatos(false);   // refrescar lista "Hoy"
+    } else {
+      mostrarToast('⚠ ' + (data.error || 'Error al guardar'));
+    }
+
+  } catch (err) {
+    console.error('Error guardando nota:', err);
+    mostrarToast('⚠ Error de red al guardar. Revisá GAS_URL.');
+  } finally {
+    btn.disabled  = false;
+    btn.innerHTML = `
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
+        <polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>
+      </svg>
+      Guardar nota`;
+  }
 }
 </script>
 
