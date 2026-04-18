@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mesa de Trabajo</title>
-<!-- v3: fix versión en header, fix render bullets/listas en panel Hoy,
+<!-- v4: fix Doc y Calendar — parser HTML de Quill en servidor, fix render bullets/listas en panel Hoy,
           fix Google Doc: guarda texto plano formateado en lugar de HTML crudo -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗂️</text></svg>">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap" rel="stylesheet">
@@ -524,7 +524,7 @@ a { color: inherit; text-decoration: none; }
   <div class="login-box">
     <span class="login-emoji" id="login-emoji">🗂️</span>
     <div class="login-logo" id="login-logo">MESA DE TRABAJO</div>
-    <div class="login-sub">v1 · Workspace personal</div>
+    <div class="login-sub">v4 · Workspace personal</div>
     <div class="login-title">Accedé con tu cuenta Google</div>
     <div class="login-desc">
       Solo cuentas autorizadas por el administrador<br>
@@ -560,7 +560,7 @@ a { color: inherit; text-decoration: none; }
     <span id="hdr-emoji" style="font-size:1.3rem">🗂️</span>
     <span class="hdr-logo" id="hdr-logo">MESA DE TRABAJO</span>
     <span class="hdr-name" id="hdr-nombre"></span>
-    <span class="hdr-version">v3</span>
+    <span class="hdr-version">v4</span>
     <span class="hdr-sep"></span>
     <span class="hdr-refran" id="hdr-refran"></span>
     <button class="hdr-refresh" id="btn-refresh" onclick="cargarDatos(true)" title="Actualizar">
@@ -659,7 +659,7 @@ a { color: inherit; text-decoration: none; }
 ────────────────────────────────────────────── */
 const GAS_URL    = 'https://script.google.com/macros/s/AKfycbzhcy1THlO2qwvx8clyaHRN2xAG8hX6rTsXelELjGBA83gm_358f68BHjLJbbX_tTjB/exec';        // ← URL de tu Web App GAS
 const CLIENT_ID  = '985022387906-5h3qtmq6jifdl5jdv77o4amf9nb3mcdn.apps.googleusercontent.com';   // ← OAuth 2.0 Client ID
-const VERSION_UI = 'v3';
+const VERSION_UI = 'v4';
 
 /* ──────────────────────────────────────────────
    ESTADO GLOBAL
