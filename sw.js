@@ -1,7 +1,7 @@
-// Mesa de Trabajo — Service Worker v6
+// Mesa de Trabajo — Service Worker v9
 // Estrategia: cache-first para assets estáticos, network-first para API GAS
 
-const CACHE_NAME = 'mdt-v6';
+const CACHE_NAME = 'mdt-v9';
 const STATIC_ASSETS = [
   './',
   './index.html',
