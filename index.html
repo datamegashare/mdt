@@ -663,6 +663,7 @@ a { color: inherit; text-decoration: none; }
   position  : relative;
   overflow  : hidden;
   transition: max-height .35s cubic-bezier(.4,0,.2,1);
+  max-height: 9999px; /* estado expandido por defecto */
 }
 .nota-contenido-wrap.collapsed {
   /* ~4 líneas a 1.55 line-height × 0.8rem × 16px ≈ 80px */
@@ -672,7 +673,7 @@ a { color: inherit; text-decoration: none; }
   content   : '';
   position  : absolute;
   bottom    : 0; left: 0; right: 0;
-  height    : 32px;
+  height    : 36px;
   background: linear-gradient(to bottom, transparent, var(--surface));
   pointer-events: none;
 }
@@ -774,7 +775,7 @@ a { color: inherit; text-decoration: none; }
   <div class="login-box">
     <span class="login-emoji" id="login-emoji">🗂️</span>
     <div class="login-logo" id="login-logo">MESA DE TRABAJO</div>
-    <div class="login-sub">v6 · Workspace personal</div>
+    <div class="login-sub">v9 · Workspace personal</div>
     <div class="login-title">Accedé con tu cuenta Google</div>
     <div class="login-desc">
       Solo cuentas autorizadas por el administrador<br>
@@ -911,7 +912,7 @@ a { color: inherit; text-decoration: none; }
 ────────────────────────────────────────────── */
 const GAS_URL    = 'https://script.google.com/macros/s/AKfycbzhcy1THlO2qwvx8clyaHRN2xAG8hX6rTsXelELjGBA83gm_358f68BHjLJbbX_tTjB/exec';        // ← URL de tu Web App GAS
 const CLIENT_ID  = '985022387906-5h3qtmq6jifdl5jdv77o4amf9nb3mcdn.apps.googleusercontent.com';   // ← OAuth 2.0 Client ID
-const VERSION_UI = 'v6';
+const VERSION_UI = 'v9';
 
 /* ──────────────────────────────────────────────
    COLORES DISPONIBLES PARA POSTITS
@@ -1322,62 +1323,74 @@ function renderNotasHoy(notas) {
     return;
   }
 
-  // Umbral: cantidad de líneas antes de colapsar (v9)
-  const COLLAPSE_MAX_H = 80; // px — equivale a ~4 líneas
+  const COLLAPSE_H = 80; // px umbral para colapsar (~4 líneas)
+  const SVG_CHEVRON = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
 
   notas.forEach(nota => {
-    const card     = document.createElement('div');
+    const card = document.createElement('div');
     card.className = 'nota-card';
 
+    // Meta (hora + etiqueta)
+    const meta = document.createElement('div');
+    meta.className = 'nota-meta';
+    meta.innerHTML = `
+      <span class="nota-hora">${formatearHora(nota.fechaHora)}</span>
+      <span class="nota-etiq">${escHtml(nota.etiqueta)}</span>`;
+    card.appendChild(meta);
+
+    // Wrapper colapsable
     const wrap = document.createElement('div');
-    wrap.className = 'nota-contenido-wrap collapsed';
+    wrap.className = 'nota-contenido-wrap';
+    // Arrancar sin transición para medir limpio
+    wrap.style.transition = 'none';
+    wrap.style.overflow   = 'hidden';
 
     const contenido = document.createElement('div');
     contenido.className = 'nota-contenido';
     contenido.innerHTML = nota.contenido;
-
     wrap.appendChild(contenido);
-
-    card.innerHTML = `
-      <div class="nota-meta">
-        <span class="nota-hora">${formatearHora(nota.fechaHora)}</span>
-        <span class="nota-etiq">${escHtml(nota.etiqueta)}</span>
-      </div>`;
     card.appendChild(wrap);
 
-    // Verificar si el contenido supera el umbral (se hace después de insertar en DOM)
+    // Insertar en DOM para poder medir
     lista.appendChild(card);
 
-    // Medir altura real del contenido sin colapso
-    wrap.classList.remove('collapsed');
     const fullH = wrap.scrollHeight;
-    wrap.classList.add('collapsed');
 
-    if (fullH > COLLAPSE_MAX_H) {
-      // El contenido es largo → agregar botón
+    if (fullH > COLLAPSE_H) {
+      // Colapsar sin animación (primer render)
+      wrap.style.maxHeight = COLLAPSE_H + 'px';
+      // Activar transición para interacciones futuras
+      requestAnimationFrame(() => {
+        wrap.style.transition = 'max-height .35s cubic-bezier(.4,0,.2,1)';
+        wrap.classList.add('collapsed');
+      });
+
+      // Botón Ver más / Ver menos
       const btn = document.createElement('button');
       btn.className = 'nota-expand-btn';
-      btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg> Ver más`;
+      btn.innerHTML = `${SVG_CHEVRON} Ver más`;
+
+      let expandido = false;
       btn.addEventListener('click', () => {
-        const collapsed = wrap.classList.contains('collapsed');
-        if (collapsed) {
+        expandido = !expandido;
+        if (expandido) {
           wrap.style.maxHeight = fullH + 'px';
           wrap.classList.remove('collapsed');
           btn.classList.add('expanded');
-          btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg> Ver menos`;
+          btn.innerHTML = `${SVG_CHEVRON} Ver menos`;
         } else {
-          wrap.style.maxHeight = '';
+          wrap.style.maxHeight = COLLAPSE_H + 'px';
           wrap.classList.add('collapsed');
           btn.classList.remove('expanded');
-          btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg> Ver más`;
-          // Scroll suave al card para no perder contexto
+          btn.innerHTML = `${SVG_CHEVRON} Ver más`;
           card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
       });
       card.appendChild(btn);
     } else {
-      // Nota corta → quitar colapso definitivamente
-      wrap.classList.remove('collapsed');
+      // Nota corta: sin restricción
+      wrap.style.maxHeight = '';
+      wrap.style.overflow  = '';
     }
   });
 }
