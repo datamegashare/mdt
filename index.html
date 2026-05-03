@@ -13,12 +13,19 @@
 <meta name="apple-mobile-web-app-title" content="Mesa">
 <link rel="apple-touch-icon" href="icon-192.png">
 <!--
-  v9 — Cambios respecto a v8:
-  1. Notas largas en panel derecho: se muestran contraídas (2 líneas) con botón "Ver más"
-     → Umbral configurable (NOTA_COLLAPSE_LINES = 4 líneas de texto renderizado)
-     → Botón "▼ Ver más" / "▲ Ver menos" con animación suave
-     → Notas cortas no muestran el botón (sin cambio visual para ellas)
-  v8 — [ver historial previo]
+  v10 — Cambios respecto a v9:
+  1. Resizer estético: triángulos redondeados enfrentados (estilo NotebookLM)
+     → Color muted en reposo, accent naranja al hover/drag
+  2. Fix: fecha del panel HOY se actualiza en cada recarga (btn Actualizar y carga de notas)
+  3. Navegación de fechas en panel HOY: flechas ← → entre días con notas
+     → Label dinámico: "HOY" si es hoy, fecha formateada si es pasado
+     → Fondo del panel cambia suavemente al navegar a días pasados
+     → Al guardar nota nueva, vuelve automáticamente a HOY
+     → Requiere GAS v8 (acción getNotasFecha)
+  4. Drag & drop para reordenar PostIts (HTML5 nativo, sin librerías)
+     → Orden persiste en estado local durante la sesión
+     → Indicador visual de zona drop (línea naranja)
+  v9 — [ver historial previo]
   v6 — PWA, botón instalación, meta tags Apple
   v5 — localStorage, PostIts compartidos, resizers
 -->
@@ -54,6 +61,9 @@
   --postit-w : 180px;
   --postit-min: 110px;
   --postit-max: 320px;
+  /* Panel derecho: fondo cambia al navegar al pasado */
+  --panel-right-bg: #f1f5f9;
+  --panel-right-header-accent: var(--accent2);
 }
 
 /* ─────────────────────────────────────────────────
@@ -429,11 +439,22 @@ a { color: inherit; text-decoration: none; }
   position     : relative;
   box-shadow   : 0 2px 6px rgba(0,0,0,.10), 0 1px 2px rgba(0,0,0,.06);
   animation    : popIn .2s ease;
-  transition   : box-shadow .15s;
+  transition   : box-shadow .15s, opacity .15s, transform .15s;
   min-height   : 56px;
+  cursor       : grab;
 }
+.postit-card:active { cursor: grabbing; }
 @keyframes popIn { from { opacity:0; transform: scale(.92) translateY(4px); } to { opacity:1; transform: none; } }
 .postit-card:hover { box-shadow: 0 4px 14px rgba(0,0,0,.14); }
+/* Estado durante el drag */
+.postit-card.dragging-src {
+  opacity  : 0.45;
+  transform: scale(.96);
+  box-shadow: none;
+}
+/* Indicador de zona de drop */
+.postit-card.drag-over-top    { border-top   : 2.5px solid var(--accent); }
+.postit-card.drag-over-bottom { border-bottom: 2.5px solid var(--accent); }
 
 /* Botón borrar */
 .postit-del {
@@ -550,27 +571,35 @@ a { color: inherit; text-decoration: none; }
 .btn-pi-cancel:hover { background: #cbd5e1; }
 
 /* ─────────────────────────────────────────────────
-   RESIZER (drag handle entre paneles)
+   RESIZER (drag handle entre paneles) — v10
+   Estilo: par de triángulos redondeados enfrentados
 ───────────────────────────────────────────────── */
 .resizer {
-  width     : 5px;
-  background: var(--border);
-  cursor    : col-resize;
+  width      : 10px;
+  background : var(--border);
+  cursor     : col-resize;
   flex-shrink: 0;
-  transition: background .15s;
-  position  : relative;
+  transition : background .2s;
+  position   : relative;
+  display    : flex;
+  align-items: center;
+  justify-content: center;
 }
-.resizer:hover, .resizer.dragging { background: var(--accent); }
+.resizer:hover, .resizer.dragging { background: #e2e8f0; }
+/* Triángulos SVG via pseudo-elemento */
 .resizer::after {
-  content : '';
-  position: absolute;
-  top     : 50%;
-  left    : 50%;
+  content  : '';
+  position : absolute;
+  top      : 50%;
+  left     : 50%;
   transform: translate(-50%, -50%);
-  width   : 1px;
-  height  : 32px;
-  background: rgba(0,0,0,.15);
-  border-radius: 1px;
+  width    : 10px;
+  height   : 36px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='36' viewBox='0 0 10 36'%3E%3Crect x='0' y='0' width='10' height='36' rx='5' fill='none'/%3E%3Cpath d='M5 4 L2 9 Q1.5 10 2.5 10 L7.5 10 Q8.5 10 8 9 Z' fill='%2394a3b8' rx='1'/%3E%3Cpath d='M5 32 L2 27 Q1.5 26 2.5 26 L7.5 26 Q8.5 26 8 27 Z' fill='%2394a3b8' rx='1'/%3E%3C/svg%3E") center/10px 36px no-repeat;
+  transition: background-image .2s;
+}
+.resizer:hover::after, .resizer.dragging::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='36' viewBox='0 0 10 36'%3E%3Cpath d='M5 4 L2 9 Q1.5 10 2.5 10 L7.5 10 Q8.5 10 8 9 Z' fill='%23d97706'/%3E%3Cpath d='M5 32 L2 27 Q1.5 26 2.5 26 L7.5 26 Q8.5 26 8 27 Z' fill='%23d97706'/%3E%3C/svg%3E");
 }
 
 /* ─────────────────────────────────────────────────
@@ -581,23 +610,60 @@ a { color: inherit; text-decoration: none; }
   flex-direction: column;
   flex          : 1;
   overflow      : hidden;
-  background    : var(--bg);
+  background    : var(--panel-right-bg);
   min-width     : 240px;
+  transition    : background .4s ease;
+}
+/* Estado "pasado": fondo levemente azulado */
+#panel-right.es-pasado {
+  --panel-right-bg: #eef2f9;
 }
 .panel-right-header {
-  padding        : 14px 18px 10px;
+  padding        : 10px 14px 8px;
   display        : flex;
   align-items    : center;
-  justify-content: space-between;
+  gap            : 6px;
   flex-shrink    : 0;
+}
+/* Botones de navegación ← → */
+.today-nav-btn {
+  background   : none;
+  border       : 1.5px solid var(--border);
+  color        : var(--muted);
+  border-radius: 6px;
+  width        : 26px;
+  height       : 26px;
+  display      : flex;
+  align-items  : center;
+  justify-content: center;
+  cursor       : pointer;
+  transition   : all .15s;
+  flex-shrink  : 0;
+  font-size    : .75rem;
+  padding      : 0;
+}
+.today-nav-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: rgba(217,119,6,.06); }
+.today-nav-btn:disabled { opacity: .25; cursor: not-allowed; }
+/* Área central del header: label + fecha */
+.today-nav-center {
+  flex        : 1;
+  display     : flex;
+  flex-direction: column;
+  align-items : center;
+  min-width   : 0;
 }
 .today-label {
   font-family  : 'Bebas Neue', sans-serif;
-  font-size    : 1.4rem;
+  font-size    : 1.3rem;
   color        : var(--accent2);
   letter-spacing: 1px;
+  line-height  : 1;
+  white-space  : nowrap;
+  transition   : color .3s;
 }
-.today-date { font-size: .72rem; color: var(--muted); font-weight: 500; }
+/* Cuando es pasado, el label cambia de color */
+#panel-right.es-pasado .today-label { color: #3b5998; }
+.today-date { font-size: .68rem; color: var(--muted); font-weight: 500; white-space: nowrap; }
 
 #refran-box {
   margin       : 0 16px 10px;
@@ -775,7 +841,7 @@ a { color: inherit; text-decoration: none; }
   <div class="login-box">
     <span class="login-emoji" id="login-emoji">🗂️</span>
     <div class="login-logo" id="login-logo">MESA DE TRABAJO</div>
-    <div class="login-sub">v9 · Workspace personal</div>
+    <div class="login-sub">v10 · Workspace personal</div>
     <div class="login-title">Accedé con tu cuenta Google</div>
     <div class="login-desc">
       Solo cuentas autorizadas por el administrador<br>
@@ -807,7 +873,7 @@ a { color: inherit; text-decoration: none; }
     <span id="hdr-emoji" style="font-size:1.3rem">🗂️</span>
     <span class="hdr-logo" id="hdr-logo">MESA DE TRABAJO</span>
     <span class="hdr-name" id="hdr-nombre"></span>
-    <span class="hdr-version">v9</span>
+    <span class="hdr-version">v10</span>
     <span class="hdr-sep"></span>
     <span class="hdr-refran" id="hdr-refran"></span>
     <!-- Botón instalar PWA: visible solo cuando el browser lo permite -->
@@ -879,8 +945,16 @@ a { color: inherit; text-decoration: none; }
     <!-- PANEL DERECHO: HOY -->
     <div id="panel-right">
       <div class="panel-right-header">
-        <span class="today-label">HOY</span>
-        <span class="today-date" id="fecha-hoy"></span>
+        <button class="today-nav-btn" id="btn-fecha-ant" onclick="navegarFecha(-1)" title="Día anterior" disabled>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <div class="today-nav-center">
+          <span class="today-label" id="today-label-txt">HOY</span>
+          <span class="today-date"  id="fecha-hoy"></span>
+        </div>
+        <button class="today-nav-btn" id="btn-fecha-sig" onclick="navegarFecha(+1)" title="Día siguiente" disabled>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
       </div>
       <div id="refran-box">…</div>
       <div id="notas-list">
@@ -912,7 +986,7 @@ a { color: inherit; text-decoration: none; }
 ────────────────────────────────────────────── */
 const GAS_URL    = 'https://script.google.com/macros/s/AKfycbzhcy1THlO2qwvx8clyaHRN2xAG8hX6rTsXelELjGBA83gm_358f68BHjLJbbX_tTjB/exec';        // ← URL de tu Web App GAS
 const CLIENT_ID  = '985022387906-5h3qtmq6jifdl5jdv77o4amf9nb3mcdn.apps.googleusercontent.com';   // ← OAuth 2.0 Client ID
-const VERSION_UI = 'v9';
+const VERSION_UI = 'v10';
 
 /* ──────────────────────────────────────────────
    COLORES DISPONIBLES PARA POSTITS
@@ -938,6 +1012,9 @@ const estado = {
   datos         : null,
   postits       : [],
   nuevoPostitColor: 'yellow',
+  // M3: navegación de fechas en panel HOY
+  fechaVista    : null,      // string 'yyyy-MM-dd' o null = hoy
+  fechasConNotas: [],        // array ordenado de strings 'yyyy-MM-dd' con datos
 };
 
 /* ──────────────────────────────────────────────
@@ -976,10 +1053,129 @@ function formatearHora(fechaHoraStr) {
   } catch { return String(fechaHoraStr).slice(11, 16) || ''; }
 }
 
+function fechaHoyStr() {
+  // Devuelve 'yyyy-MM-dd' de hoy (local)
+  const d = new Date();
+  return d.getFullYear() + '-'
+    + String(d.getMonth() + 1).padStart(2, '0') + '-'
+    + String(d.getDate()).padStart(2, '0');
+}
+
 function fechaHoyFormateada() {
   return new Date().toLocaleDateString('es-AR', {
     weekday: 'long', day: 'numeric', month: 'long'
   });
+}
+
+function formatearFechaStr(fechaStr) {
+  // 'yyyy-MM-dd' → "lunes, 28 de abril"
+  if (!fechaStr) return '';
+  try {
+    // Forzar hora 12:00 para evitar desplazamiento de zona horaria
+    const d = new Date(fechaStr + 'T12:00:00');
+    return d.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
+  } catch { return fechaStr; }
+}
+
+// M2: actualiza la fecha visible en el panel (llamado en cada cargarDatos)
+function actualizarFechaPanel() {
+  const esHoy = !estado.fechaVista || estado.fechaVista === fechaHoyStr();
+  const label = esHoy ? 'HOY' : formatearFechaStr(estado.fechaVista).toUpperCase().slice(0, 3) === 'HOY'
+    ? 'HOY'
+    : formatearFechaStr(estado.fechaVista).split(',')[0].toUpperCase(); // día de semana
+  const fechaTxt = esHoy ? fechaHoyFormateada() : formatearFechaStr(estado.fechaVista);
+
+  const labelEl = document.getElementById('today-label-txt');
+  const fechaEl = document.getElementById('fecha-hoy');
+  if (labelEl) labelEl.textContent = esHoy ? 'HOY' : formatearFechaStr(estado.fechaVista).split(',')[0].toUpperCase().slice(0,3) === 'LUN'
+    || true ? formatearFechaStr(estado.fechaVista) : label;
+  if (fechaEl) fechaEl.textContent = esHoy ? fechaHoyFormateada() : '';
+
+  // Si es pasado, mostrar la fecha formateada completa como label y sin subtítulo
+  if (!esHoy) {
+    if (labelEl) labelEl.textContent = formatearFechaStr(estado.fechaVista);
+    if (fechaEl) fechaEl.textContent = '';
+  } else {
+    if (labelEl) labelEl.textContent = 'HOY';
+    if (fechaEl) fechaEl.textContent = fechaHoyFormateada();
+  }
+
+  // Cambiar fondo del panel
+  const panelRight = document.getElementById('panel-right');
+  if (panelRight) panelRight.classList.toggle('es-pasado', !esHoy);
+
+  // Actualizar estado de botones de navegación
+  actualizarBotonesNav();
+}
+
+// M3: actualiza habilitación de los botones ← →
+function actualizarBotonesNav() {
+  const btnAnt = document.getElementById('btn-fecha-ant');
+  const btnSig = document.getElementById('btn-fecha-sig');
+  if (!btnAnt || !btnSig) return;
+
+  const fechas = estado.fechasConNotas;
+  const hoy    = fechaHoyStr();
+  const vista  = estado.fechaVista || hoy;
+
+  const idx = fechas.indexOf(vista);
+
+  // Hay anterior si hay fechas y no estamos en la más antigua
+  btnAnt.disabled = fechas.length === 0 || idx === 0 || (idx === -1 && fechas.length === 0);
+
+  // Si la fechaVista es hoy o más reciente que todas → no hay sig; si hay fecha > vista → habilitar
+  const hayMasNueva = fechas.some(f => f > vista);
+  const hayMasVieja = fechas.some(f => f < vista);
+  btnAnt.disabled = !hayMasVieja;
+  btnSig.disabled = !hayMasNueva || vista >= hoy;
+}
+
+// M3: navegar -1 (anterior) o +1 (siguiente) entre fechas con notas
+async function navegarFecha(dir) {
+  const hoy   = fechaHoyStr();
+  const vista = estado.fechaVista || hoy;
+  const fechas = estado.fechasConNotas.slice().sort(); // asc
+
+  let nuevaFecha;
+  if (dir === -1) {
+    // Buscar la más reciente que sea < vista
+    const anteriores = fechas.filter(f => f < vista);
+    if (!anteriores.length) return;
+    nuevaFecha = anteriores[anteriores.length - 1];
+  } else {
+    // Buscar la más antigua que sea > vista
+    const siguientes = fechas.filter(f => f > vista);
+    if (!siguientes.length) return;
+    nuevaFecha = siguientes[0];
+  }
+
+  estado.fechaVista = nuevaFecha === hoy ? null : nuevaFecha;
+  actualizarFechaPanel();
+  await cargarNotasFecha(nuevaFecha);
+}
+
+// M3: carga notas de una fecha específica via GAS
+async function cargarNotasFecha(fecha) {
+  const lista = document.getElementById('notas-list');
+  lista.innerHTML = '<div class="notas-empty"><span class="notas-empty-icon">⏳</span>Cargando…</div>';
+  try {
+    const data = await gasPost({
+      action: 'getNotasFecha',
+      email : estado.usuario?.email || '',
+      fecha
+    });
+    if (data.ok) {
+      // Actualizar el índice de fechas disponibles
+      if (data.fechasDisponibles) {
+        estado.fechasConNotas = data.fechasDisponibles;
+        actualizarBotonesNav();
+      }
+      renderNotasHoy(data.notas || []);
+    }
+  } catch(err) {
+    lista.innerHTML = '<div class="notas-empty"><span class="notas-empty-icon">⚠️</span>Error al cargar.</div>';
+    console.error('Error cargarNotasFecha:', err);
+  }
 }
 
 function escHtml(str) {
@@ -1145,7 +1341,9 @@ function iniciarApp() {
   const av = document.getElementById('hdr-avatar');
   if (estado.usuario.avatar) av.src = estado.usuario.avatar;
 
-  document.getElementById('fecha-hoy').textContent = fechaHoyFormateada();
+  // M2+M3: inicializar fecha al arrancar
+  estado.fechaVista = null; // hoy
+  actualizarFechaPanel();
 
   iniciarQuill();
   iniciarResizers();
@@ -1246,6 +1444,8 @@ async function cargarDatos(manual = false) {
   icon.parentElement.classList.add('spin');
 
   try {
+    // M2: actualizar la fecha visible en cada recarga
+    actualizarFechaPanel();
     const data = await gasPost({ action: 'getData', email: estado.usuario?.email || '' });
     estado.datos = data;
     renderizarDatos(data);
@@ -1283,8 +1483,18 @@ function renderizarDatos(data) {
     document.getElementById('refran-box').textContent = r;
   }
 
+  // M3: actualizar índice de fechas con notas y botones nav
+  if (data.fechasDisponibles) {
+    estado.fechasConNotas = data.fechasDisponibles;
+    actualizarBotonesNav();
+  }
+
   renderEtiquetas(data.etiquetas   || []);
-  renderNotasHoy(data.notasHoy     || []);
+  // M3: si estamos viendo hoy (o no hay fechaVista), renderizar notas normalmente
+  if (!estado.fechaVista || estado.fechaVista === fechaHoyStr()) {
+    renderNotasHoy(data.notasHoy || []);
+    actualizarFechaPanel();
+  }
   renderToolbar(data.herramientas  || []);
 }
 
@@ -1443,6 +1653,9 @@ async function guardarNota() {
     if (data.ok) {
       mostrarToast('✓ Nota guardada · ' + etiqueta);
       estado.quill.setContents([]);
+      // M3: al guardar, volver siempre a HOY
+      estado.fechaVista = null;
+      actualizarFechaPanel();
       cargarDatos(false);
     } else {
       mostrarToast('⚠ ' + (data.error || 'Error al guardar'));
@@ -1503,6 +1716,61 @@ function crearCardPostit(pi) {
   card.className        = 'postit-card';
   card.dataset.id       = pi.id;
   card.style.background = bg;
+
+  // ── M4: Drag & drop ─────────────────────────────
+  card.draggable = true;
+
+  card.addEventListener('dragstart', e => {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', pi.id);
+    // Pequeño delay para que el estado visual se vea antes de ocultar
+    setTimeout(() => card.classList.add('dragging-src'), 0);
+  });
+
+  card.addEventListener('dragend', () => {
+    card.classList.remove('dragging-src');
+    document.querySelectorAll('.postit-card').forEach(c => {
+      c.classList.remove('drag-over-top', 'drag-over-bottom');
+    });
+  });
+
+  card.addEventListener('dragover', e => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const rect   = card.getBoundingClientRect();
+    const mitad  = rect.top + rect.height / 2;
+    document.querySelectorAll('.postit-card').forEach(c => {
+      c.classList.remove('drag-over-top', 'drag-over-bottom');
+    });
+    card.classList.add(e.clientY < mitad ? 'drag-over-top' : 'drag-over-bottom');
+  });
+
+  card.addEventListener('dragleave', () => {
+    card.classList.remove('drag-over-top', 'drag-over-bottom');
+  });
+
+  card.addEventListener('drop', e => {
+    e.preventDefault();
+    card.classList.remove('drag-over-top', 'drag-over-bottom');
+    const idOrigen = e.dataTransfer.getData('text/plain');
+    if (!idOrigen || idOrigen === pi.id) return;
+
+    const rect  = card.getBoundingClientRect();
+    const antes = e.clientY < rect.top + rect.height / 2;
+
+    const idxOrigen  = estado.postits.findIndex(p => p.id === idOrigen);
+    const idxDestino = estado.postits.findIndex(p => p.id === pi.id);
+    if (idxOrigen === -1 || idxDestino === -1) return;
+
+    // Reordenar array
+    const [movido] = estado.postits.splice(idxOrigen, 1);
+    const nuevoIdx = estado.postits.findIndex(p => p.id === pi.id);
+    estado.postits.splice(antes ? nuevoIdx : nuevoIdx + 1, 0, movido);
+
+    renderPostits();
+    mostrarToast('📌 PostIt reordenado');
+  });
+  // ── Fin drag & drop ──────────────────────────────
 
   // Texto editable in-place
   const textEl = document.createElement('div');
