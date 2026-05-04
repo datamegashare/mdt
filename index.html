@@ -13,6 +13,13 @@
 <meta name="apple-mobile-web-app-title" content="Mesa">
 <link rel="apple-touch-icon" href="icon-192.png">
 <!--
+  v11.1 — Cambios respecto a v11:
+  a. Versión visible en mobile: badge compacto junto al ícono en header
+  b. Línea de horario en panel HOY: el GAS inserta <p class="nota-horario">
+     en el HTML del contenido; el frontend la estiliza con acento naranja
+  c. GAS: mesa_v9.1.gs — guardarNota inyecta párrafo horario en contenido HTML
+-->
+<!--
   v11 — Cambios respecto a v10.1:
   A. Toggle horario en Anotador
      → Selectores ▲▼ estilo alarma para hora inicio (30 min) y duración (8 opciones)
@@ -933,6 +940,22 @@ a { color: inherit; text-decoration: none; }
 .notas-empty { text-align: center; color: var(--muted); font-size: .8rem; padding: 40px 20px; }
 .notas-empty-icon { font-size: 2.4rem; display: block; margin-bottom: 10px; }
 
+/* Línea de horario en nota — v11.1 */
+.nota-contenido .nota-horario {
+  display      : inline-flex;
+  align-items  : center;
+  gap          : 5px;
+  font-size    : .72rem;
+  font-weight  : 600;
+  color        : var(--accent);
+  background   : var(--tag-bg);
+  border-left  : 3px solid var(--accent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding      : 3px 10px 3px 8px;
+  margin-bottom: 6px;
+  font-style   : normal;
+}
+
 /* Notas colapsables */
 .nota-contenido-wrap {
   position  : relative;
@@ -1057,8 +1080,14 @@ a { color: inherit; text-decoration: none; }
   /* C: solo ícono en header — ocultar texto y versión */
   .hdr-logo    { display: none; }
   .hdr-name    { display: none; }
-  .hdr-version { display: none; }
   .hdr-refran  { display: none; }
+  /* versión: se mueve al lado del emoji como badge compacto */
+  .hdr-version {
+    font-size  : .62rem;
+    color      : rgba(255,255,255,.45);
+    margin-left: 2px;
+    font-weight: 500;
+  }
 
   #app { --toolbar-h: 0px; }
   #toolbar { display: none; }
@@ -1178,7 +1207,7 @@ a { color: inherit; text-decoration: none; }
   <div class="login-box">
     <span class="login-emoji" id="login-emoji">🗂️</span>
     <div class="login-logo" id="login-logo">MESA DE TRABAJO</div>
-    <div class="login-sub">v11 · Workspace personal</div>
+    <div class="login-sub">v11.1 · Workspace personal</div>
     <div class="login-title">Accedé con tu cuenta Google</div>
     <div class="login-desc">
       Solo cuentas autorizadas por el administrador<br>
@@ -1211,7 +1240,7 @@ a { color: inherit; text-decoration: none; }
     <!-- hdr-logo y hdr-name se ocultan en mobile por CSS (mejora C) -->
     <span class="hdr-logo" id="hdr-logo">MESA DE TRABAJO</span>
     <span class="hdr-name" id="hdr-nombre"></span>
-    <span class="hdr-version">v11</span>
+    <span class="hdr-version">v11.1</span>
     <span class="hdr-sep"></span>
     <span class="hdr-refran" id="hdr-refran"></span>
     <button class="btn-instalar-pwa" id="btn-instalar-pwa" title="Instalar app" style="display:none" onclick="instalarPWA()">
@@ -1392,7 +1421,7 @@ a { color: inherit; text-decoration: none; }
 ────────────────────────────────────────────── */
 const GAS_URL    = 'https://script.google.com/macros/s/AKfycbzhcy1THlO2qwvx8clyaHRN2xAG8hX6rTsXelELjGBA83gm_358f68BHjLJbbX_tTjB/exec';
 const CLIENT_ID  = '985022387906-5h3qtmq6jifdl5jdv77o4amf9nb3mcdn.apps.googleusercontent.com';
-const VERSION_UI = 'v11';
+const VERSION_UI = 'v11.1';
 
 /* ──────────────────────────────────────────────
    COLORES POSTITS
