@@ -13,6 +13,12 @@
 <meta name="apple-mobile-web-app-title" content="Mesa">
 <link rel="apple-touch-icon" href="icon-192.png">
 <!--
+  v11.2 — Cambios respecto a v11.1:
+  a. Color .nota-horario cambiado a violeta (era naranja, se confundía con etiqueta)
+  b. Panel de métricas GAS (Shift+D): historial de llamadas, tiempos, indicador semáforo
+  c. Keep-alive liviano: ping a GAS cada 4 min para evitar cold start
+-->
+<!--
   v11.1 — Cambios respecto a v11:
   a. Versión visible en mobile: badge compacto junto al ícono en header
   b. Línea de horario en panel HOY: el GAS inserta <p class="nota-horario">
@@ -940,16 +946,16 @@ a { color: inherit; text-decoration: none; }
 .notas-empty { text-align: center; color: var(--muted); font-size: .8rem; padding: 40px 20px; }
 .notas-empty-icon { font-size: 2.4rem; display: block; margin-bottom: 10px; }
 
-/* Línea de horario en nota — v11.1 */
+/* Línea de horario en nota — v11.2: violeta para distinguir de etiqueta */
 .nota-contenido .nota-horario {
   display      : inline-flex;
   align-items  : center;
   gap          : 5px;
   font-size    : .72rem;
   font-weight  : 600;
-  color        : var(--accent);
-  background   : var(--tag-bg);
-  border-left  : 3px solid var(--accent);
+  color        : #3C3489;
+  background   : #EEEDFE;
+  border-left  : 3px solid #7F77DD;
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   padding      : 3px 10px 3px 8px;
   margin-bottom: 6px;
@@ -1198,6 +1204,180 @@ a { color: inherit; text-decoration: none; }
   #horario-selectores { gap: 8px; }
   .time-picker-ctrl { width: 58px; }
 }
+/* ─────────────────────────────────────────────────
+   PANEL DE MÉTRICAS — v11.2 (Shift+D)
+───────────────────────────────────────────────── */
+#metrics-panel {
+  display      : none;
+  position     : fixed;
+  bottom       : 80px;
+  right        : 16px;
+  width        : 320px;
+  max-height   : 480px;
+  background   : var(--accent2);
+  color        : #e2e8f0;
+  border-radius: var(--radius);
+  box-shadow   : 0 8px 32px rgba(0,0,0,.35);
+  z-index      : 9999;
+  flex-direction: column;
+  overflow     : hidden;
+  font-family  : 'DM Mono', 'Courier New', monospace;
+  font-size    : .72rem;
+}
+#metrics-panel.visible { display: flex; }
+
+.mtr-header {
+  display        : flex;
+  align-items    : center;
+  justify-content: space-between;
+  padding        : 10px 14px 8px;
+  border-bottom  : 1px solid rgba(255,255,255,.1);
+  flex-shrink    : 0;
+}
+.mtr-title {
+  font-family   : 'Bebas Neue', sans-serif;
+  font-size     : .95rem;
+  letter-spacing: 2px;
+  color         : var(--accent);
+}
+.mtr-close {
+  background: transparent;
+  border    : none;
+  color     : rgba(255,255,255,.4);
+  font-size : 1rem;
+  cursor    : pointer;
+  padding   : 0 2px;
+  line-height: 1;
+}
+.mtr-close:hover { color: #fff; }
+
+.mtr-summary {
+  display  : grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap      : 1px;
+  background: rgba(255,255,255,.07);
+  border-bottom: 1px solid rgba(255,255,255,.1);
+  flex-shrink: 0;
+}
+.mtr-stat {
+  padding   : 8px 10px;
+  background: var(--accent2);
+  text-align: center;
+}
+.mtr-stat-val {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size  : 1.2rem;
+  line-height: 1;
+  color      : #f8fafc;
+}
+.mtr-stat-val.ok     { color: #4ade80; }
+.mtr-stat-val.warn   { color: #fbbf24; }
+.mtr-stat-val.error  { color: #f87171; }
+.mtr-stat-lbl {
+  font-size : .6rem;
+  color     : rgba(255,255,255,.4);
+  margin-top: 2px;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+
+.mtr-keepalive {
+  padding  : 5px 14px;
+  font-size: .65rem;
+  color    : rgba(255,255,255,.35);
+  border-bottom: 1px solid rgba(255,255,255,.06);
+  flex-shrink: 0;
+}
+.mtr-keepalive span { color: #4ade80; }
+
+.mtr-list-wrap {
+  flex      : 1;
+  overflow-y: auto;
+  padding   : 6px 0;
+}
+.mtr-list-wrap::-webkit-scrollbar { width: 3px; }
+.mtr-list-wrap::-webkit-scrollbar-thumb { background: rgba(255,255,255,.15); border-radius: 2px; }
+
+.mtr-row {
+  display        : flex;
+  align-items    : center;
+  gap            : 8px;
+  padding        : 5px 14px;
+  border-bottom  : 1px solid rgba(255,255,255,.04);
+  transition     : background .1s;
+}
+.mtr-row:hover { background: rgba(255,255,255,.04); }
+
+.mtr-dot {
+  width        : 7px;
+  height       : 7px;
+  border-radius: 50%;
+  flex-shrink  : 0;
+}
+.mtr-dot.ok    { background: #4ade80; }
+.mtr-dot.warn  { background: #fbbf24; }
+.mtr-dot.error { background: #f87171; }
+
+.mtr-action {
+  flex       : 1;
+  color      : rgba(255,255,255,.75);
+  overflow   : hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mtr-ms {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size  : .88rem;
+  min-width  : 44px;
+  text-align : right;
+  flex-shrink: 0;
+}
+.mtr-ms.ok    { color: #4ade80; }
+.mtr-ms.warn  { color: #fbbf24; }
+.mtr-ms.error { color: #f87171; }
+.mtr-ts {
+  font-size : .6rem;
+  color     : rgba(255,255,255,.25);
+  min-width : 36px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.mtr-empty {
+  text-align: center;
+  color     : rgba(255,255,255,.25);
+  padding   : 24px 0;
+  font-size : .7rem;
+}
+
+.mtr-footer {
+  padding     : 7px 14px;
+  border-top  : 1px solid rgba(255,255,255,.08);
+  font-size   : .6rem;
+  color       : rgba(255,255,255,.25);
+  flex-shrink : 0;
+  display     : flex;
+  justify-content: space-between;
+}
+.mtr-footer button {
+  background  : transparent;
+  border      : 1px solid rgba(255,255,255,.15);
+  color       : rgba(255,255,255,.4);
+  border-radius: 4px;
+  padding     : 2px 8px;
+  font-size   : .6rem;
+  cursor      : pointer;
+  font-family : inherit;
+}
+.mtr-footer button:hover { color: #fff; border-color: rgba(255,255,255,.4); }
+
+@media (max-width: 720px) {
+  #metrics-panel {
+    bottom: 70px;
+    right : 8px;
+    left  : 8px;
+    width : auto;
+  }
+}
 </style>
 </head>
 <body>
@@ -1207,7 +1387,7 @@ a { color: inherit; text-decoration: none; }
   <div class="login-box">
     <span class="login-emoji" id="login-emoji">🗂️</span>
     <div class="login-logo" id="login-logo">MESA DE TRABAJO</div>
-    <div class="login-sub">v11.1 · Workspace personal</div>
+    <div class="login-sub">v11.2 · Workspace personal</div>
     <div class="login-title">Accedé con tu cuenta Google</div>
     <div class="login-desc">
       Solo cuentas autorizadas por el administrador<br>
@@ -1240,7 +1420,7 @@ a { color: inherit; text-decoration: none; }
     <!-- hdr-logo y hdr-name se ocultan en mobile por CSS (mejora C) -->
     <span class="hdr-logo" id="hdr-logo">MESA DE TRABAJO</span>
     <span class="hdr-name" id="hdr-nombre"></span>
-    <span class="hdr-version">v11.1</span>
+    <span class="hdr-version">v11.2</span>
     <span class="hdr-sep"></span>
     <span class="hdr-refran" id="hdr-refran"></span>
     <button class="btn-instalar-pwa" id="btn-instalar-pwa" title="Instalar app" style="display:none" onclick="instalarPWA()">
@@ -1407,6 +1587,36 @@ a { color: inherit; text-decoration: none; }
   </div>
 </div>
 
+<!-- PANEL DE MÉTRICAS — v11.2 -->
+<div id="metrics-panel" role="dialog" aria-label="Panel de métricas GAS">
+  <div class="mtr-header">
+    <span class="mtr-title">⚡ Métricas GAS</span>
+    <button class="mtr-close" onclick="cerrarMetricas()" title="Cerrar (Shift+D)">✕</button>
+  </div>
+  <div class="mtr-summary">
+    <div class="mtr-stat">
+      <div class="mtr-stat-val" id="mtr-total">0</div>
+      <div class="mtr-stat-lbl">Llamadas</div>
+    </div>
+    <div class="mtr-stat">
+      <div class="mtr-stat-val" id="mtr-promedio">—</div>
+      <div class="mtr-stat-lbl">Promedio ms</div>
+    </div>
+    <div class="mtr-stat">
+      <div class="mtr-stat-val" id="mtr-maximo">—</div>
+      <div class="mtr-stat-lbl">Máximo ms</div>
+    </div>
+  </div>
+  <div class="mtr-keepalive">Keep-alive: ping cada 4 min · próximo en <span id="mtr-ka-countdown">—</span></div>
+  <div class="mtr-list-wrap">
+    <div id="mtr-list"><div class="mtr-empty">Sin llamadas aún. Usá la app para ver métricas.</div></div>
+  </div>
+  <div class="mtr-footer">
+    <span>Shift+D para abrir/cerrar</span>
+    <button onclick="limpiarMetricas()">Limpiar</button>
+  </div>
+</div>
+
 <!-- Toast -->
 <div id="toast"></div>
 
@@ -1421,7 +1631,7 @@ a { color: inherit; text-decoration: none; }
 ────────────────────────────────────────────── */
 const GAS_URL    = 'https://script.google.com/macros/s/AKfycbzhcy1THlO2qwvx8clyaHRN2xAG8hX6rTsXelELjGBA83gm_358f68BHjLJbbX_tTjB/exec';
 const CLIENT_ID  = '985022387906-5h3qtmq6jifdl5jdv77o4amf9nb3mcdn.apps.googleusercontent.com';
-const VERSION_UI = 'v11.1';
+const VERSION_UI = 'v11.2';
 
 /* ──────────────────────────────────────────────
    COLORES POSTITS
@@ -1536,19 +1746,162 @@ function onToggleHorario() {
 }
 
 /* ──────────────────────────────────────────────
-   GAS POST
+   MÉTRICAS GAS — v11.2
+────────────────────────────────────────────── */
+const metricas = {
+  historial  : [],   // { action, ms, ts, ok }
+  MAX_ITEMS  : 50,
+  kaInterval : null,
+  kaSeconds  : 0,
+  kaTimer    : null,
+};
+
+function clasificarMs(ms) {
+  if (ms < 1000) return 'ok';
+  if (ms < 3000) return 'warn';
+  return 'error';
+}
+
+function registrarMetrica(action, ms, ok) {
+  const ts = new Date().toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  metricas.historial.unshift({ action, ms, ts, ok });
+  if (metricas.historial.length > metricas.MAX_ITEMS) metricas.historial.pop();
+  actualizarPanelMetricas();
+}
+
+function actualizarPanelMetricas() {
+  const h = metricas.historial;
+
+  // Summary
+  const total = h.length;
+  const promedio = total ? Math.round(h.reduce((s, r) => s + r.ms, 0) / total) : null;
+  const maximo   = total ? Math.max(...h.map(r => r.ms)) : null;
+
+  const elTotal = document.getElementById('mtr-total');
+  const elProm  = document.getElementById('mtr-promedio');
+  const elMax   = document.getElementById('mtr-maximo');
+
+  if (elTotal) elTotal.textContent = total;
+
+  if (elProm) {
+    elProm.textContent = promedio !== null ? promedio : '—';
+    elProm.className   = 'mtr-stat-val' + (promedio !== null ? ' ' + clasificarMs(promedio) : '');
+  }
+  if (elMax) {
+    elMax.textContent = maximo !== null ? maximo : '—';
+    elMax.className   = 'mtr-stat-val' + (maximo !== null ? ' ' + clasificarMs(maximo) : '');
+  }
+
+  // Lista
+  const lista = document.getElementById('mtr-list');
+  if (!lista) return;
+  if (!h.length) {
+    lista.innerHTML = '<div class="mtr-empty">Sin llamadas aún. Usá la app para ver métricas.</div>';
+    return;
+  }
+
+  lista.innerHTML = h.map(r => {
+    const cls = clasificarMs(r.ms);
+    const ico = r.ok ? '' : '⚠ ';
+    return `<div class="mtr-row">
+      <div class="mtr-dot ${cls}"></div>
+      <div class="mtr-action" title="${r.action}">${ico}${r.action}</div>
+      <div class="mtr-ms ${cls}">${r.ms}ms</div>
+      <div class="mtr-ts">${r.ts}</div>
+    </div>`;
+  }).join('');
+}
+
+function abrirMetricas()  { document.getElementById('metrics-panel').classList.add('visible'); actualizarPanelMetricas(); }
+function cerrarMetricas() { document.getElementById('metrics-panel').classList.remove('visible'); }
+function limpiarMetricas() { metricas.historial = []; actualizarPanelMetricas(); }
+
+// Atajo Shift+D
+document.addEventListener('keydown', e => {
+  if (e.key === 'D' && e.shiftKey && !e.ctrlKey && !e.metaKey) {
+    const panel = document.getElementById('metrics-panel');
+    if (panel) panel.classList.contains('visible') ? cerrarMetricas() : abrirMetricas();
+  }
+});
+
+/* ──────────────────────────────────────────────
+   KEEP-ALIVE — v11.2 (ping cada 4 min)
+────────────────────────────────────────────── */
+const KA_INTERVAL_MS  = 4 * 60 * 1000;   // 4 minutos
+const KA_TICK_MS      = 1000;             // actualizar countdown cada 1s
+
+function iniciarKeepAlive() {
+  if (metricas.kaInterval) clearInterval(metricas.kaInterval);
+  if (metricas.kaTimer)    clearInterval(metricas.kaTimer);
+
+  metricas.kaSeconds = KA_INTERVAL_MS / 1000;
+  actualizarKaCountdown();
+
+  metricas.kaTimer = setInterval(() => {
+    metricas.kaSeconds = Math.max(0, metricas.kaSeconds - 1);
+    actualizarKaCountdown();
+  }, KA_TICK_MS);
+
+  metricas.kaInterval = setInterval(() => {
+    // fire-and-forget: no bloquea, no registra en historial principal
+    const t0 = performance.now();
+    fetch(GAS_URL, {
+      method : 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body   : JSON.stringify({ action: 'ping' })
+    })
+    .then(() => {
+      const ms = Math.round(performance.now() - t0);
+      registrarMetrica('ping (keep-alive)', ms, true);
+    })
+    .catch(() => {})
+    .finally(() => {
+      metricas.kaSeconds = KA_INTERVAL_MS / 1000;
+    });
+  }, KA_INTERVAL_MS);
+}
+
+function actualizarKaCountdown() {
+  const el = document.getElementById('mtr-ka-countdown');
+  if (!el) return;
+  const m = Math.floor(metricas.kaSeconds / 60);
+  const s = metricas.kaSeconds % 60;
+  el.textContent = `${m}:${String(s).padStart(2,'0')}`;
+}
+
+/* ──────────────────────────────────────────────
+   GAS POST — instrumentado v11.2
 ────────────────────────────────────────────── */
 async function gasPost(payload) {
-  const resp = await fetch(GAS_URL, {
-    method : 'POST',
-    headers: { 'Content-Type': 'text/plain' },
-    body   : JSON.stringify(payload)
-  });
-  const rawText = await resp.text();
+  const t0     = performance.now();
+  const action = payload.action || 'unknown';
+  let ok = true;
   try {
-    return JSON.parse(rawText);
-  } catch {
-    throw new Error('Respuesta no-JSON: ' + rawText.slice(0, 120));
+    const resp = await fetch(GAS_URL, {
+      method : 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body   : JSON.stringify(payload)
+    });
+    const rawText = await resp.text();
+    const ms = Math.round(performance.now() - t0);
+    let parsed;
+    try {
+      parsed = JSON.parse(rawText);
+    } catch {
+      ok = false;
+      registrarMetrica(action, ms, false);
+      throw new Error('Respuesta no-JSON: ' + rawText.slice(0, 120));
+    }
+    ok = !!parsed.ok;
+    registrarMetrica(action, ms, ok);
+    return parsed;
+  } catch(err) {
+    if (ok) {
+      // error de red (fetch falló antes de recibir respuesta)
+      const ms = Math.round(performance.now() - t0);
+      registrarMetrica(action, ms, false);
+    }
+    throw err;
   }
 }
 
@@ -1816,6 +2169,9 @@ function iniciarApp() {
   iniciarBottomSheet();
   cargarDatos(false);
   cargarPostits();
+
+  // v11.2: keep-alive liviano cada 4 min (reemplaza el cargarDatos cada 15 min)
+  iniciarKeepAlive();
 
   if (estado.refrescoId) clearInterval(estado.refrescoId);
   estado.refrescoId = setInterval(() => {
