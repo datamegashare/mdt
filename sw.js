@@ -1,68 +1,51 @@
-// Mesa de Trabajo — Service Worker v9
-// Estrategia: cache-first para assets estáticos, network-first para API GAS
+// sw.js — Mesa de Trabajo PWA
+// Cache: mdt-v11
 
-const CACHE_NAME = 'mdt-v10';
-const STATIC_ASSETS = [
+const CACHE_NAME = 'mdt-v11';
+const ASSETS = [
   './',
-  './index.html',
+  './index_v11.html',
   './manifest.json',
-  'https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap',
-  'https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.js',
-  'https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.snow.css',
+  './icon-192.png',
+  './icon-512.png',
 ];
 
-// Instalar: pre-cachear assets estáticos
-self.addEventListener('install', event => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => {
-      return cache.addAll(STATIC_ASSETS).catch(err => {
-        console.warn('[SW] No se pudieron cachear algunos assets:', err);
-      });
-    })
+self.addEventListener('install', e => {
+  e.waitUntil(
+    caches.open(CACHE_NAME)
+      .then(cache => cache.addAll(ASSETS))
+      .then(() => self.skipWaiting())
   );
-  self.skipWaiting();
 });
 
-// Activar: limpiar caches viejos
-self.addEventListener('activate', event => {
-  event.waitUntil(
+self.addEventListener('activate', e => {
+  e.waitUntil(
     caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
-    )
+      Promise.all(
+        keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
+      )
+    ).then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
-// Fetch: cache-first para estáticos, network-only para GAS (CORS)
-self.addEventListener('fetch', event => {
-  const url = event.request.url;
+self.addEventListener('fetch', e => {
+  // Solo cachear GET, ignorar requests al GAS y a Google
+  if (e.request.method !== 'GET') return;
+  if (e.request.url.includes('script.google.com')) return;
+  if (e.request.url.includes('accounts.google.com')) return;
+  if (e.request.url.includes('googleapis.com')) return;
 
-  // Las llamadas a GAS siempre van a la red (no son cacheables por CORS)
-  if (url.includes('script.google.com') || url.includes('accounts.google.com')) {
-    return; // dejar pasar sin interceptar
-  }
-
-  // Para el resto: cache-first
-  event.respondWith(
-    caches.match(event.request).then(cached => {
+  e.respondWith(
+    caches.match(e.request).then(cached => {
       if (cached) return cached;
-      return fetch(event.request).then(response => {
-        // Solo cachear respuestas OK de mismo origen o CDNs confiables
-        if (response.ok && (
-          url.startsWith(self.location.origin) ||
-          url.includes('cdn.jsdelivr.net') ||
-          url.includes('fonts.googleapis.com') ||
-          url.includes('fonts.gstatic.com')
-        )) {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+      return fetch(e.request).then(response => {
+        // Solo cachear respuestas válidas de origen propio
+        if (!response || response.status !== 200 || response.type !== 'basic') {
+          return response;
         }
+        const respClone = response.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(e.request, respClone));
         return response;
-      }).catch(() => {
-        // Sin red y sin cache: para HTML devolver la app cacheada
-        if (event.request.destination === 'document') {
-          return caches.match('./index.html');
-        }
       });
     })
   );

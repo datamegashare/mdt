@@ -13,32 +13,18 @@
 <meta name="apple-mobile-web-app-title" content="Mesa">
 <link rel="apple-touch-icon" href="icon-192.png">
 <!--
-  v10.1 — Cambios respecto a v10:
-  1. Paneles como tarjetas flotantes con border-radius y sombra suave
-     → Fondo de #main gris; resizer invisible (gap 8px + pill hover naranja)
-  2. Mobile: navegación por tabs (✏️ Anotar | 📌 PostIts | 📋 HOY)
-     → Sin scroll vertical infinito; una pantalla a la vez
-  v10 — resizer triangular, fix fecha, nav fechas, drag&drop PostIts
-  v9  — notas colapsables con "Ver más"
-  v6  — PWA, botón instalación
-  v5  — localStorage, PostIts compartidos, resizers
--->
-<!--
-  v10 — Cambios respecto a v9:
-  1. Resizer estético: triángulos redondeados enfrentados (estilo NotebookLM)
-     → Color muted en reposo, accent naranja al hover/drag
-  2. Fix: fecha del panel HOY se actualiza en cada recarga (btn Actualizar y carga de notas)
-  3. Navegación de fechas en panel HOY: flechas ← → entre días con notas
-     → Label dinámico: "HOY" si es hoy, fecha formateada si es pasado
-     → Fondo del panel cambia suavemente al navegar a días pasados
-     → Al guardar nota nueva, vuelve automáticamente a HOY
-     → Requiere GAS v8 (acción getNotasFecha)
-  4. Drag & drop para reordenar PostIts (HTML5 nativo, sin librerías)
-     → Orden persiste en estado local durante la sesión
-     → Indicador visual de zona drop (línea naranja)
-  v9 — [ver historial previo]
-  v6 — PWA, botón instalación, meta tags Apple
-  v5 — localStorage, PostIts compartidos, resizers
+  v11 — Cambios respecto a v10.1:
+  A. Toggle horario en Anotador
+     → Selectores ▲▼ estilo alarma para hora inicio (30 min) y duración (8 opciones)
+     → Post-guardado: toggle se apaga. Sheet/Doc: línea "13:00 a 14:15 (75 min)"
+     → Calendario: evento con hora exacta (requiere GAS v9)
+  B. FAB + Bottom Sheet en PostIts (mobile)
+     → Botón flotante naranja fijo bottom:80px right:20px
+     → Formulario aparece en bottom sheet deslizable desde abajo
+     → Formulario fijo arriba de grilla eliminado en mobile
+  C. Header mobile: solo ícono, sin texto
+  D. Badge en tab HOY: contador de notas del día
+  E. sw.js: cache actualizado a mdt-v11
 -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗂️</text></svg>">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap" rel="stylesheet">
@@ -68,13 +54,10 @@
   --shadow-md: 0 4px 12px rgba(0,0,0,.10);
   --toolbar-h: 76px;
   --header-h : 52px;
-  /* PostIt column */
   --postit-w : 180px;
   --postit-min: 110px;
   --postit-max: 320px;
-  /* Panel derecho: fondo cambia al navegar al pasado */
   --panel-right-bg: #f1f5f9;
-  --panel-right-header-accent: var(--accent2);
 }
 
 /* ─────────────────────────────────────────────────
@@ -185,7 +168,6 @@ a { color: inherit; text-decoration: none; }
   text-overflow: ellipsis;
   white-space  : nowrap;
 }
-/* Indicador silencioso de re-auth en background */
 #auth-status {
   width        : 6px;
   height       : 6px;
@@ -193,7 +175,6 @@ a { color: inherit; text-decoration: none; }
   background   : var(--success);
   flex-shrink  : 0;
   transition   : background .3s;
-  title        : 'Sesión activa';
 }
 #auth-status.refreshing {
   background: var(--accent);
@@ -233,7 +214,7 @@ a { color: inherit; text-decoration: none; }
 .hdr-user { width: 28px; height: 28px; border-radius: 50%; border: 2px solid rgba(255,255,255,.2); object-fit: cover; background: rgba(255,255,255,.1); }
 
 /* ─────────────────────────────────────────────────
-   MAIN LAYOUT — v10.1: tarjetas flotantes sobre fondo gris
+   MAIN LAYOUT
 ───────────────────────────────────────────────── */
 #main {
   display   : flex;
@@ -244,7 +225,6 @@ a { color: inherit; text-decoration: none; }
   gap       : 0;
 }
 
-/* Estilo base compartido: los 3 paneles son tarjetas */
 #panel-left,
 #postit-col,
 #panel-right {
@@ -310,6 +290,134 @@ a { color: inherit; text-decoration: none; }
 }
 .etiq-chip:hover  { border-color: var(--accent); }
 .etiq-chip.active { background: var(--tag-sel); color: var(--tag-sfg); border-color: var(--tag-sel); }
+
+/* ── Toggle horario — v11 ────────────────────── */
+#horario-wrap {
+  padding      : 8px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink  : 0;
+  background   : #fafafa;
+}
+.horario-row {
+  display    : flex;
+  align-items: center;
+  gap        : 10px;
+}
+.horario-label {
+  font-size     : .67rem;
+  font-weight   : 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color         : var(--muted);
+  flex          : 1;
+}
+/* Toggle switch */
+.toggle-switch {
+  position : relative;
+  width    : 36px;
+  height   : 20px;
+  flex-shrink: 0;
+}
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-track {
+  position     : absolute;
+  inset        : 0;
+  background   : #cbd5e1;
+  border-radius: 99px;
+  cursor       : pointer;
+  transition   : background .2s;
+}
+.toggle-track::after {
+  content      : '';
+  position     : absolute;
+  top          : 2px; left: 2px;
+  width        : 16px; height: 16px;
+  border-radius: 50%;
+  background   : #fff;
+  box-shadow   : 0 1px 3px rgba(0,0,0,.2);
+  transition   : transform .2s;
+}
+.toggle-switch input:checked + .toggle-track { background: var(--accent); }
+.toggle-switch input:checked + .toggle-track::after { transform: translateX(16px); }
+
+/* Selectores de hora estilo alarma */
+#horario-selectores {
+  display        : none;
+  align-items    : center;
+  gap            : 12px;
+  margin-top     : 8px;
+  flex-wrap      : wrap;
+}
+#horario-selectores.visible { display: flex; }
+
+.time-picker {
+  display       : flex;
+  flex-direction: column;
+  align-items   : center;
+  gap           : 2px;
+}
+.time-picker-label {
+  font-size  : .62rem;
+  color      : var(--muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  margin-bottom: 2px;
+}
+.time-picker-ctrl {
+  display      : flex;
+  flex-direction: column;
+  align-items  : center;
+  background   : var(--surface);
+  border       : 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow     : hidden;
+  width        : 68px;
+}
+.time-arrow {
+  width     : 100%;
+  padding   : 3px 0;
+  background: transparent;
+  border    : none;
+  color     : var(--muted);
+  font-size : .9rem;
+  line-height: 1;
+  cursor    : pointer;
+  transition: background .12s, color .12s;
+  display   : flex;
+  align-items    : center;
+  justify-content: center;
+}
+.time-arrow:hover { background: var(--tag-bg); color: var(--accent); }
+.time-value {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size  : 1.3rem;
+  letter-spacing: 1px;
+  color      : var(--accent2);
+  padding    : 2px 0;
+  min-width  : 52px;
+  text-align : center;
+  user-select: none;
+  line-height: 1.1;
+}
+.time-sep {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size  : 1.4rem;
+  color      : var(--muted);
+  margin-top : 18px;
+  align-self : center;
+}
+.horario-preview {
+  font-size  : .72rem;
+  color      : var(--accent);
+  font-weight: 600;
+  background : var(--tag-bg);
+  border-radius: var(--radius-sm);
+  padding    : 3px 8px;
+  align-self : center;
+  white-space: nowrap;
+  margin-top : 18px;
+}
 
 /* ── Editor Quill ──────────────────────────────── */
 #editor-wrap {
@@ -425,6 +533,7 @@ a { color: inherit; text-decoration: none; }
   letter-spacing: .08em;
   color         : #78350f;
 }
+/* Botón + en desktop */
 .btn-add-postit {
   width        : 22px;
   height       : 22px;
@@ -453,7 +562,6 @@ a { color: inherit; text-decoration: none; }
 #postit-list::-webkit-scrollbar { width: 3px; }
 #postit-list::-webkit-scrollbar-thumb { background: #fde68a; border-radius: 2px; }
 
-/* PostIt individual */
 .postit-card {
   border-radius: 6px;
   padding      : 8px 8px 6px;
@@ -467,29 +575,19 @@ a { color: inherit; text-decoration: none; }
 .postit-card:active { cursor: grabbing; }
 @keyframes popIn { from { opacity:0; transform: scale(.92) translateY(4px); } to { opacity:1; transform: none; } }
 .postit-card:hover { box-shadow: 0 4px 14px rgba(0,0,0,.14); }
-/* Estado durante el drag */
-.postit-card.dragging-src {
-  opacity  : 0.45;
-  transform: scale(.96);
-  box-shadow: none;
-}
-/* Indicador de zona de drop */
+.postit-card.dragging-src { opacity: 0.45; transform: scale(.96); box-shadow: none; }
 .postit-card.drag-over-top    { border-top   : 2.5px solid var(--accent); }
 .postit-card.drag-over-bottom { border-bottom: 2.5px solid var(--accent); }
 
-/* Botón borrar */
 .postit-del {
   position     : absolute;
-  top          : 4px;
-  right        : 4px;
-  width        : 16px;
-  height       : 16px;
+  top          : 4px; right: 4px;
+  width        : 16px; height: 16px;
   border-radius: 50%;
   background   : rgba(0,0,0,.12);
   border       : none;
   color        : rgba(0,0,0,.5);
   font-size    : .6rem;
-  line-height  : 1;
   display      : flex;
   align-items  : center;
   justify-content: center;
@@ -500,7 +598,6 @@ a { color: inherit; text-decoration: none; }
 .postit-card:hover .postit-del { opacity: 1; }
 .postit-del:hover { background: rgba(220,38,38,.85); color: #fff; }
 
-/* Texto del postit */
 .postit-text {
   font-size  : .75rem;
   color      : #1e293b;
@@ -517,24 +614,15 @@ a { color: inherit; text-decoration: none; }
   background   : rgba(255,255,255,.55);
   border-radius: 4px;
   padding      : 2px 4px;
-  cursor       : text;
 }
 .postit-text[contenteditable="true"]:focus {
   background: rgba(255,255,255,.9);
   box-shadow: 0 0 0 2px rgba(217,119,6,.4);
   outline   : none;
 }
-
-/* Selector de color */
-.postit-colors {
-  display  : flex;
-  gap      : 4px;
-  margin-top: 6px;
-  flex-wrap: wrap;
-}
+.postit-colors { display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
 .postit-color-dot {
-  width        : 10px;
-  height       : 10px;
+  width        : 10px; height: 10px;
   border-radius: 50%;
   border       : 1.5px solid rgba(0,0,0,.15);
   cursor       : pointer;
@@ -543,8 +631,6 @@ a { color: inherit; text-decoration: none; }
 }
 .postit-color-dot:hover { transform: scale(1.3); }
 .postit-color-dot.selected { border-color: rgba(0,0,0,.5); transform: scale(1.15); }
-
-/* Pie del postit (autor + hora) */
 .postit-footer {
   font-size  : .58rem;
   color      : rgba(0,0,0,.35);
@@ -554,11 +640,12 @@ a { color: inherit; text-decoration: none; }
   align-items: center;
 }
 
-/* Input rápido para crear postit */
+/* Form nuevo PostIt — desktop */
+.postit-nuevo-form { padding: 0; }
 .postit-new-input {
   border       : 1.5px dashed #fbbf24;
   border-radius: 6px;
-  padding      : 8px 8px;
+  padding      : 8px;
   font-size    : .75rem;
   font-family  : inherit;
   resize       : none;
@@ -571,12 +658,7 @@ a { color: inherit; text-decoration: none; }
   line-height  : 1.45;
 }
 .postit-new-input:focus { border-color: var(--accent); background: #fff; }
-.postit-new-actions {
-  display        : flex;
-  gap            : 4px;
-  justify-content: flex-end;
-  margin-top     : 4px;
-}
+.postit-new-actions { display: flex; gap: 4px; justify-content: flex-end; margin-top: 4px; }
 .btn-pi-ok, .btn-pi-cancel {
   padding      : 3px 10px;
   border-radius: var(--radius-sm);
@@ -592,7 +674,129 @@ a { color: inherit; text-decoration: none; }
 .btn-pi-cancel:hover { background: #cbd5e1; }
 
 /* ─────────────────────────────────────────────────
-   RESIZER — v10.1: invisible, solo gap + pill hover
+   FAB — Botón flotante nuevo PostIt (mobile) — v11
+───────────────────────────────────────────────── */
+#fab-nuevo-postit {
+  display      : none; /* solo mobile lo activa */
+  position     : fixed;
+  bottom       : 80px;
+  right        : 20px;
+  width        : 52px;
+  height       : 52px;
+  border-radius: 50%;
+  background   : var(--accent);
+  color        : #fff;
+  border       : none;
+  font-size    : 1.6rem;
+  line-height  : 1;
+  box-shadow   : 0 4px 16px rgba(217,119,6,.45);
+  z-index      : 200;
+  align-items  : center;
+  justify-content: center;
+  transition   : transform .15s, box-shadow .15s;
+}
+#fab-nuevo-postit:hover  { transform: scale(1.08); box-shadow: 0 6px 20px rgba(217,119,6,.55); }
+#fab-nuevo-postit:active { transform: scale(.96); }
+
+/* ─────────────────────────────────────────────────
+   BOTTOM SHEET — Formulario nuevo PostIt (mobile) — v11
+───────────────────────────────────────────────── */
+#postit-bottom-sheet {
+  display        : none;
+  position       : fixed;
+  bottom         : 0; left: 0; right: 0;
+  background     : var(--surface);
+  border-radius  : 16px 16px 0 0;
+  box-shadow     : 0 -4px 24px rgba(0,0,0,.15);
+  z-index        : 300;
+  padding        : 16px 20px 32px;
+  transform      : translateY(100%);
+  transition     : transform .3s cubic-bezier(.4,0,.2,1);
+}
+#postit-bottom-sheet.visible {
+  display  : block;
+  transform: translateY(0);
+}
+.bs-handle {
+  width        : 36px;
+  height       : 4px;
+  background   : var(--border);
+  border-radius: 99px;
+  margin       : 0 auto 16px;
+}
+.bs-title {
+  font-size  : .78rem;
+  font-weight: 600;
+  color      : var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  margin-bottom: 12px;
+}
+.bs-colors { display: flex; gap: 8px; margin-bottom: 10px; }
+.bs-color-dot {
+  width        : 22px;
+  height       : 22px;
+  border-radius: 50%;
+  border       : 2px solid rgba(0,0,0,.12);
+  cursor       : pointer;
+  transition   : transform .15s, border-color .15s;
+}
+.bs-color-dot:hover   { transform: scale(1.15); }
+.bs-color-dot.selected { border-color: var(--accent2); transform: scale(1.15); }
+#bs-textarea {
+  width        : 100%;
+  min-height   : 90px;
+  border       : 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding      : 10px 12px;
+  font-size    : .85rem;
+  font-family  : inherit;
+  resize       : none;
+  outline      : none;
+  color        : var(--text);
+  line-height  : 1.5;
+  transition   : border-color .15s;
+  margin-bottom: 12px;
+}
+#bs-textarea:focus { border-color: var(--accent); }
+.bs-actions { display: flex; gap: 8px; }
+#bs-btn-ok {
+  flex         : 1;
+  padding      : 10px;
+  background   : var(--accent);
+  color        : #fff;
+  border       : none;
+  border-radius: var(--radius-sm);
+  font-size    : .85rem;
+  font-weight  : 600;
+  font-family  : inherit;
+  cursor       : pointer;
+  transition   : background .15s;
+}
+#bs-btn-ok:hover { background: #b45309; }
+#bs-btn-cancel {
+  padding      : 10px 16px;
+  background   : var(--bg);
+  color        : var(--muted);
+  border       : 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size    : .85rem;
+  font-family  : inherit;
+  cursor       : pointer;
+}
+/* Overlay oscuro detrás del bottom sheet */
+#bs-overlay {
+  display  : none;
+  position : fixed;
+  inset    : 0;
+  background: rgba(0,0,0,.35);
+  z-index  : 299;
+  backdrop-filter: blur(2px);
+}
+#bs-overlay.visible { display: block; }
+
+/* ─────────────────────────────────────────────────
+   RESIZER
 ───────────────────────────────────────────────── */
 .resizer {
   width      : 8px;
@@ -600,25 +804,18 @@ a { color: inherit; text-decoration: none; }
   cursor     : col-resize;
   flex-shrink: 0;
   position   : relative;
-  transition : none;
 }
-/* Pill naranja sutil al hover — único indicador visual */
 .resizer::after {
   content      : '';
   position     : absolute;
-  top          : 50%;
-  left         : 50%;
+  top          : 50%; left: 50%;
   transform    : translate(-50%, -50%);
-  width        : 4px;
-  height       : 32px;
+  width        : 4px; height: 32px;
   background   : transparent;
   border-radius: 99px;
   transition   : background .2s;
 }
-.resizer:hover::after, .resizer.dragging::after {
-  background: var(--accent);
-  opacity   : .55;
-}
+.resizer:hover::after, .resizer.dragging::after { background: var(--accent); opacity: .55; }
 
 /* ─────────────────────────────────────────────────
    PANEL DERECHO — Hoy
@@ -632,10 +829,8 @@ a { color: inherit; text-decoration: none; }
   min-width     : 240px;
   transition    : background .4s ease;
 }
-/* Estado "pasado": fondo levemente azulado */
-#panel-right.es-pasado {
-  --panel-right-bg: #eef2f9;
-}
+#panel-right.es-pasado { --panel-right-bg: #eef2f9; }
+
 .panel-right-header {
   padding        : 10px 14px 8px;
   display        : flex;
@@ -643,14 +838,12 @@ a { color: inherit; text-decoration: none; }
   gap            : 6px;
   flex-shrink    : 0;
 }
-/* Botones de navegación ← → */
 .today-nav-btn {
   background   : none;
   border       : 1.5px solid var(--border);
   color        : var(--muted);
   border-radius: 6px;
-  width        : 26px;
-  height       : 26px;
+  width        : 26px; height: 26px;
   display      : flex;
   align-items  : center;
   justify-content: center;
@@ -662,7 +855,6 @@ a { color: inherit; text-decoration: none; }
 }
 .today-nav-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: rgba(217,119,6,.06); }
 .today-nav-btn:disabled { opacity: .25; cursor: not-allowed; }
-/* Área central del header: label + fecha */
 .today-nav-center {
   flex        : 1;
   display     : flex;
@@ -679,7 +871,6 @@ a { color: inherit; text-decoration: none; }
   white-space  : nowrap;
   transition   : color .3s;
 }
-/* Cuando es pasado, el label cambia de color */
 #panel-right.es-pasado .today-label { color: #3b5998; }
 .today-date { font-size: .68rem; color: var(--muted); font-weight: 500; white-space: nowrap; }
 
@@ -742,17 +933,14 @@ a { color: inherit; text-decoration: none; }
 .notas-empty { text-align: center; color: var(--muted); font-size: .8rem; padding: 40px 20px; }
 .notas-empty-icon { font-size: 2.4rem; display: block; margin-bottom: 10px; }
 
-/* ── Notas colapsables (v9) ────────────────────── */
+/* Notas colapsables */
 .nota-contenido-wrap {
   position  : relative;
   overflow  : hidden;
   transition: max-height .35s cubic-bezier(.4,0,.2,1);
-  max-height: 9999px; /* estado expandido por defecto */
+  max-height: 9999px;
 }
-.nota-contenido-wrap.collapsed {
-  /* ~4 líneas a 1.55 line-height × 0.8rem × 16px ≈ 80px */
-  max-height: 80px;
-}
+.nota-contenido-wrap.collapsed { max-height: 80px; }
 .nota-contenido-wrap.collapsed::after {
   content   : '';
   position  : absolute;
@@ -783,7 +971,7 @@ a { color: inherit; text-decoration: none; }
 .nota-expand-btn.expanded svg { transform: rotate(180deg); }
 
 /* ─────────────────────────────────────────────────
-   BARRA DE HERRAMIENTAS — estilo Apple Dock
+   TOOLBAR
 ───────────────────────────────────────────────── */
 #toolbar {
   height         : var(--toolbar-h);
@@ -818,10 +1006,8 @@ a { color: inherit; text-decoration: none; }
   color         : var(--text);
 }
 .tool-btn:hover { background: rgba(0,0,0,.05); transform: translateY(-3px) scale(1.05); }
-.tool-btn:active { transform: translateY(-1px) scale(1.02); }
 .tool-emoji { font-size: 1.6rem; line-height: 1; }
 .tool-label { font-size: .6rem; color: var(--muted); font-weight: 500; }
-.tool-btn:hover .tool-label { color: var(--text); }
 
 /* Skeleton */
 .skel {
@@ -839,28 +1025,52 @@ a { color: inherit; text-decoration: none; }
 ::-webkit-scrollbar-thumb:hover { background: #c0c8d4; }
 
 /* ─────────────────────────────────────────────────
-   MOBILE TABS — v10.1
-   Tab bar fija en el fondo, un panel visible a la vez
+   MOBILE TABS — v10.1 + badge HOY v11
 ───────────────────────────────────────────────── */
+#mobile-tabs { display: none; }
 
-/* Tab bar — solo visible en mobile */
-#mobile-tabs {
-  display : none;
+/* Badge sobre ícono del tab */
+.mob-tab-icon-wrap {
+  position: relative;
+  display : inline-flex;
 }
+.mob-tab-badge {
+  position     : absolute;
+  top          : -4px;
+  right        : -6px;
+  min-width    : 16px;
+  height       : 16px;
+  background   : var(--accent);
+  color        : #fff;
+  border-radius: 99px;
+  font-size    : .55rem;
+  font-weight  : 700;
+  display      : none;
+  align-items  : center;
+  justify-content: center;
+  padding      : 0 3px;
+  line-height  : 1;
+}
+.mob-tab-badge.visible { display: flex; }
 
 @media (max-width: 720px) {
-  /* Ajustes del wrapper general */
-  #app { --toolbar-h: 0px; }   /* ocultar toolbar en mobile */
+  /* C: solo ícono en header — ocultar texto y versión */
+  .hdr-logo    { display: none; }
+  .hdr-name    { display: none; }
+  .hdr-version { display: none; }
+  .hdr-refran  { display: none; }
+
+  #app { --toolbar-h: 0px; }
   #toolbar { display: none; }
 
-  /* Padding inferior para que el contenido no quede bajo el tab bar */
   #main {
     padding-bottom: 60px;
-    flex-direction: row;   /* mantener row, los paneles se muestran/ocultan con JS */
+    flex-direction: row;
     overflow      : hidden;
+    position      : relative;
+    padding       : 8px;
   }
 
-  /* Cada tarjeta ocupa todo el espacio — solo una visible a la vez */
   #panel-left,
   #postit-col,
   #panel-right {
@@ -875,22 +1085,15 @@ a { color: inherit; text-decoration: none; }
   }
   #panel-left.tab-active,
   #postit-col.tab-active,
-  #panel-right.tab-active {
-    display: flex;
-  }
+  #panel-right.tab-active { display: flex; }
 
-  /* Formulario nuevo PostIt: ocupa las 2 columnas en mobile */
-  .postit-nuevo-form {
-    width: 100%;
-    grid-column: 1 / -1;
-  }
-  /* PostIts mobile — Opción A: grilla 2 columnas, altura al contenido */
+  /* PostIts mobile — grilla 2 columnas */
   #postit-list {
     flex-direction: row;
     flex-wrap     : wrap;
     overflow-x    : hidden;
     overflow-y    : auto;
-    padding       : 8px 8px 12px;
+    padding       : 8px 8px 80px;
     gap           : 8px;
     align-content : flex-start;
   }
@@ -903,7 +1106,6 @@ a { color: inherit; text-decoration: none; }
     min-height   : 0  !important;
     cursor       : default;
   }
-  /* Texto del postit ocupa lo que necesita, no estira la card */
   .postit-card .postit-text {
     white-space  : normal;
     overflow     : hidden;
@@ -912,19 +1114,22 @@ a { color: inherit; text-decoration: none; }
     -webkit-box-orient: vertical;
   }
 
-  /* Header: ocultar refrán para más espacio */
-  .hdr-refran { display: none; }
+  /* Ocultar formulario fijo de postit en mobile (reemplazado por bottom sheet) */
+  .postit-nuevo-form { display: none !important; }
 
-  /* Resizers: invisibles en mobile */
+  /* Ocultar btn + del header de postits en mobile (reemplazado por FAB) */
+  #btn-add-postit { display: none; }
+
+  /* Mostrar FAB */
+  #fab-nuevo-postit { display: flex; }
+
   .resizer { display: none; }
 
-  /* Tab bar mobile */
+  /* Tab bar */
   #mobile-tabs {
     display        : flex;
     position       : fixed;
-    bottom         : 0;
-    left           : 0;
-    right          : 0;
+    bottom         : 0; left: 0; right: 0;
     height         : 60px;
     background     : rgba(255,255,255,.96);
     backdrop-filter: blur(12px);
@@ -960,8 +1165,9 @@ a { color: inherit; text-decoration: none; }
   .mob-tab-icon  { font-size: 1.3rem; line-height: 1; }
   .mob-tab-label { font-size: .58rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
 
-  /* Ajuste: #main necesita position relative para los paneles absolutos */
-  #main { position: relative; padding: 8px; }
+  /* Toggle horario: compactar en mobile */
+  #horario-selectores { gap: 8px; }
+  .time-picker-ctrl { width: 58px; }
 }
 </style>
 </head>
@@ -972,7 +1178,7 @@ a { color: inherit; text-decoration: none; }
   <div class="login-box">
     <span class="login-emoji" id="login-emoji">🗂️</span>
     <div class="login-logo" id="login-logo">MESA DE TRABAJO</div>
-    <div class="login-sub">v10.1 · Workspace personal</div>
+    <div class="login-sub">v11 · Workspace personal</div>
     <div class="login-title">Accedé con tu cuenta Google</div>
     <div class="login-desc">
       Solo cuentas autorizadas por el administrador<br>
@@ -1002,19 +1208,18 @@ a { color: inherit; text-decoration: none; }
   <!-- HEADER -->
   <header id="app-header">
     <span id="hdr-emoji" style="font-size:1.3rem">🗂️</span>
+    <!-- hdr-logo y hdr-name se ocultan en mobile por CSS (mejora C) -->
     <span class="hdr-logo" id="hdr-logo">MESA DE TRABAJO</span>
     <span class="hdr-name" id="hdr-nombre"></span>
-    <span class="hdr-version">v10.1</span>
+    <span class="hdr-version">v11</span>
     <span class="hdr-sep"></span>
     <span class="hdr-refran" id="hdr-refran"></span>
-    <!-- Botón instalar PWA: visible solo cuando el browser lo permite -->
     <button class="btn-instalar-pwa" id="btn-instalar-pwa" title="Instalar app" style="display:none" onclick="instalarPWA()">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
         <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
       </svg>
       Instalar
     </button>
-    <!-- Punto de estado de sesión: verde = activa, naranja = renovando -->
     <span id="auth-status" title="Sesión activa"></span>
     <button class="hdr-refresh" id="btn-refresh" onclick="cargarDatos(true)" title="Actualizar">
       <svg id="refresh-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -1039,6 +1244,41 @@ a { color: inherit; text-decoration: none; }
         <div class="etiq-label">Etiqueta</div>
         <div id="etiquetas-list"></div>
       </div>
+
+      <!-- TOGGLE HORARIO — v11 -->
+      <div id="horario-wrap">
+        <div class="horario-row">
+          <span class="horario-label">⏱ Registrar horario</span>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-horario" onchange="onToggleHorario()">
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+        <div id="horario-selectores">
+          <!-- Hora inicio -->
+          <div class="time-picker">
+            <div class="time-picker-label">Inicio</div>
+            <div class="time-picker-ctrl">
+              <button class="time-arrow" onclick="cambiarHora(1)" aria-label="Hora siguiente">▲</button>
+              <div class="time-value" id="picker-hora">09:00</div>
+              <button class="time-arrow" onclick="cambiarHora(-1)" aria-label="Hora anterior">▼</button>
+            </div>
+          </div>
+          <div class="time-sep">→</div>
+          <!-- Duración -->
+          <div class="time-picker">
+            <div class="time-picker-label">Duración</div>
+            <div class="time-picker-ctrl">
+              <button class="time-arrow" onclick="cambiarDuracion(1)" aria-label="Más duración">▲</button>
+              <div class="time-value" id="picker-duracion">1h</div>
+              <button class="time-arrow" onclick="cambiarDuracion(-1)" aria-label="Menos duración">▼</button>
+            </div>
+          </div>
+          <!-- Preview -->
+          <div class="horario-preview" id="horario-preview">09:00 a 10:00 (60 min)</div>
+        </div>
+      </div>
+
       <div id="editor-wrap">
         <div id="quill-host">
           <div id="quill-editor"></div>
@@ -1056,7 +1296,7 @@ a { color: inherit; text-decoration: none; }
       </div>
     </div>
 
-    <!-- RESIZER izquierdo (entre anotador y postits) -->
+    <!-- RESIZER izquierdo -->
     <div class="resizer" id="resizer-left"></div>
 
     <!-- COLUMNA POSTITS -->
@@ -1065,12 +1305,10 @@ a { color: inherit; text-decoration: none; }
         <span class="postit-col-title">📌 PostIts</span>
         <button class="btn-add-postit" id="btn-add-postit" onclick="mostrarNuevoPostit()" title="Nuevo PostIt">+</button>
       </div>
-      <div id="postit-list">
-        <!-- cargado con JS -->
-      </div>
+      <div id="postit-list"></div>
     </div>
 
-    <!-- RESIZER derecho (entre postits y hoy) -->
+    <!-- RESIZER derecho -->
     <div class="resizer" id="resizer-right"></div>
 
     <!-- PANEL DERECHO: HOY -->
@@ -1101,7 +1339,7 @@ a { color: inherit; text-decoration: none; }
   <!-- TOOLBAR (desktop) -->
   <div id="toolbar"></div>
 
-  <!-- MOBILE TAB BAR — v10.1 -->
+  <!-- MOBILE TAB BAR — v10.1 + badge HOY v11 -->
   <nav id="mobile-tabs" role="navigation" aria-label="Navegación mobile">
     <button class="mob-tab active" id="tab-anotar" onclick="cambiarTab('anotar')" aria-label="Anotador">
       <span class="mob-tab-icon">✏️</span>
@@ -1112,61 +1350,164 @@ a { color: inherit; text-decoration: none; }
       <span class="mob-tab-label">PostIts</span>
     </button>
     <button class="mob-tab" id="tab-hoy" onclick="cambiarTab('hoy')" aria-label="HOY">
-      <span class="mob-tab-icon">📋</span>
+      <span class="mob-tab-icon-wrap">
+        <span class="mob-tab-icon">📋</span>
+        <span class="mob-tab-badge" id="badge-hoy"></span>
+      </span>
       <span class="mob-tab-label">HOY</span>
     </button>
   </nav>
 
 </div><!-- /#app -->
 
+<!-- FAB nuevo PostIt (mobile) — v11 -->
+<button id="fab-nuevo-postit" onclick="abrirBottomSheet()" aria-label="Nuevo PostIt">+</button>
+
+<!-- Overlay bottom sheet -->
+<div id="bs-overlay" onclick="cerrarBottomSheet()"></div>
+
+<!-- Bottom Sheet nuevo PostIt (mobile) — v11 -->
+<div id="postit-bottom-sheet" role="dialog" aria-label="Nuevo PostIt">
+  <div class="bs-handle"></div>
+  <div class="bs-title">Nuevo PostIt</div>
+  <div class="bs-colors" id="bs-colors"></div>
+  <textarea id="bs-textarea" placeholder="Escribí el recordatorio…" rows="3"></textarea>
+  <div class="bs-actions">
+    <button id="bs-btn-cancel" onclick="cerrarBottomSheet()">Cancelar</button>
+    <button id="bs-btn-ok" onclick="confirmarBottomSheet()">Agregar PostIt</button>
+  </div>
+</div>
+
 <!-- Toast -->
 <div id="toast"></div>
 
 <!-- ══════════════════════════════════════════════
-     JAVASCRIPT  v5
+     JAVASCRIPT  v11
 ══════════════════════════════════════════════ -->
 <script>
 'use strict';
 
 /* ──────────────────────────────────────────────
-   CONFIGURACIÓN — EDITAR ANTES DE PUBLICAR
+   CONFIGURACIÓN
 ────────────────────────────────────────────── */
-const GAS_URL    = 'https://script.google.com/macros/s/AKfycbzhcy1THlO2qwvx8clyaHRN2xAG8hX6rTsXelELjGBA83gm_358f68BHjLJbbX_tTjB/exec';        // ← URL de tu Web App GAS
-const CLIENT_ID  = '985022387906-5h3qtmq6jifdl5jdv77o4amf9nb3mcdn.apps.googleusercontent.com';   // ← OAuth 2.0 Client ID
-const VERSION_UI = 'v10.1';
+const GAS_URL    = 'https://script.google.com/macros/s/AKfycbzhcy1THlO2qwvx8clyaHRN2xAG8hX6rTsXelELjGBA83gm_358f68BHjLJbbX_tTjB/exec';
+const CLIENT_ID  = '985022387906-5h3qtmq6jifdl5jdv77o4amf9nb3mcdn.apps.googleusercontent.com';
+const VERSION_UI = 'v11';
 
 /* ──────────────────────────────────────────────
-   COLORES DISPONIBLES PARA POSTITS
+   COLORES POSTITS
 ────────────────────────────────────────────── */
 const POSTIT_COLORS = [
-  { id: 'yellow',  bg: '#fef08a', label: 'Amarillo' },
-  { id: 'green',   bg: '#bbf7d0', label: 'Verde'    },
-  { id: 'blue',    bg: '#bae6fd', label: 'Celeste'  },
-  { id: 'pink',    bg: '#fbcfe8', label: 'Rosa'     },
-  { id: 'lavender',bg: '#ddd6fe', label: 'Lavanda'  },
-  { id: 'peach',   bg: '#fed7aa', label: 'Durazno'  },
+  { id: 'yellow',   bg: '#fef08a', label: 'Amarillo' },
+  { id: 'green',    bg: '#bbf7d0', label: 'Verde'    },
+  { id: 'blue',     bg: '#bae6fd', label: 'Celeste'  },
+  { id: 'pink',     bg: '#fbcfe8', label: 'Rosa'     },
+  { id: 'lavender', bg: '#ddd6fe', label: 'Lavanda'  },
+  { id: 'peach',    bg: '#fed7aa', label: 'Durazno'  },
+];
+
+/* ──────────────────────────────────────────────
+   OPCIONES DE DURACIÓN — v11
+────────────────────────────────────────────── */
+const DURACION_OPTS = [
+  { label: '30 min', min: 30  },
+  { label: '1h',     min: 60  },
+  { label: '1h 30',  min: 90  },
+  { label: '2h',     min: 120 },
+  { label: '2h 30',  min: 150 },
+  { label: '3h',     min: 180 },
+  { label: '3h 30',  min: 210 },
+  { label: '4h',     min: 240 },
 ];
 
 /* ──────────────────────────────────────────────
    ESTADO GLOBAL
 ────────────────────────────────────────────── */
 const estado = {
-  usuario       : null,
-  etiqActiva    : null,
-  quill         : null,
-  refrescoId    : null,
-  tokenRefreshId: null,
-  datos         : null,
-  postits       : [],
-  nuevoPostitColor: 'yellow',
-  // M3: navegación de fechas en panel HOY
-  fechaVista    : null,      // string 'yyyy-MM-dd' o null = hoy
-  fechasConNotas: [],        // array ordenado de strings 'yyyy-MM-dd' con datos
+  usuario          : null,
+  etiqActiva       : null,
+  quill            : null,
+  refrescoId       : null,
+  tokenRefreshId   : null,
+  datos            : null,
+  postits          : [],
+  nuevoPostitColor : 'yellow',
+  bsColor          : 'yellow',        // color seleccionado en bottom sheet
+  fechaVista       : null,
+  fechasConNotas   : [],
+  // v11 — toggle horario
+  horarioActivo    : false,
+  horaIdx          : 0,               // índice en el array de horas cada 30 min
+  duracionIdx      : 1,               // índice en DURACION_OPTS (default 1h)
 };
 
 /* ──────────────────────────────────────────────
-   COMUNICACIÓN CON GAS (POST + Content-Type: text/plain)
-   Fix CORS: evita preflight OPTIONS que GAS no soporta.
+   HORARIOS — generar array de segmentos de 30 min
+────────────────────────────────────────────── */
+const HORA_SLOTS = (() => {
+  const slots = [];
+  for (let h = 0; h < 24; h++) {
+    for (let m = 0; m < 60; m += 30) {
+      slots.push(
+        String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0')
+      );
+    }
+  }
+  return slots;
+})();
+
+function horaSlotMasCercana() {
+  const ahora = new Date();
+  const totalMin = ahora.getHours() * 60 + ahora.getMinutes();
+  // Redondear al próximo segmento de 30 min
+  const idx = Math.ceil(totalMin / 30) % HORA_SLOTS.length;
+  return idx;
+}
+
+function calcularHoraFin(horaStr, durMin) {
+  const [hh, mm] = horaStr.split(':').map(Number);
+  const total = hh * 60 + mm + durMin;
+  return String(Math.floor(total / 60) % 24).padStart(2,'0') + ':' + String(total % 60).padStart(2,'0');
+}
+
+function actualizarPickerDisplay() {
+  const horaStr = HORA_SLOTS[estado.horaIdx];
+  const dur     = DURACION_OPTS[estado.duracionIdx];
+  const horaFin = calcularHoraFin(horaStr, dur.min);
+
+  document.getElementById('picker-hora').textContent     = horaStr;
+  document.getElementById('picker-duracion').textContent = dur.label;
+  document.getElementById('horario-preview').textContent =
+    `${horaStr} a ${horaFin} (${dur.min} min)`;
+}
+
+function cambiarHora(dir) {
+  estado.horaIdx = (estado.horaIdx + dir + HORA_SLOTS.length) % HORA_SLOTS.length;
+  actualizarPickerDisplay();
+}
+
+function cambiarDuracion(dir) {
+  estado.duracionIdx = Math.max(0, Math.min(DURACION_OPTS.length - 1, estado.duracionIdx + dir));
+  actualizarPickerDisplay();
+}
+
+function onToggleHorario() {
+  const toggle = document.getElementById('toggle-horario');
+  const selectores = document.getElementById('horario-selectores');
+  estado.horarioActivo = toggle.checked;
+
+  if (toggle.checked) {
+    // Inicializar al slot más cercano
+    estado.horaIdx = horaSlotMasCercana();
+    actualizarPickerDisplay();
+    selectores.classList.add('visible');
+  } else {
+    selectores.classList.remove('visible');
+  }
+}
+
+/* ──────────────────────────────────────────────
+   GAS POST
 ────────────────────────────────────────────── */
 async function gasPost(payload) {
   const resp = await fetch(GAS_URL, {
@@ -1201,7 +1542,6 @@ function formatearHora(fechaHoraStr) {
 }
 
 function fechaHoyStr() {
-  // Devuelve 'yyyy-MM-dd' de hoy (local)
   const d = new Date();
   return d.getFullYear() + '-'
     + String(d.getMonth() + 1).padStart(2, '0') + '-'
@@ -1215,114 +1555,11 @@ function fechaHoyFormateada() {
 }
 
 function formatearFechaStr(fechaStr) {
-  // 'yyyy-MM-dd' → "lunes, 28 de abril"
   if (!fechaStr) return '';
   try {
-    // Forzar hora 12:00 para evitar desplazamiento de zona horaria
     const d = new Date(fechaStr + 'T12:00:00');
     return d.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
   } catch { return fechaStr; }
-}
-
-// M2: actualiza la fecha visible en el panel (llamado en cada cargarDatos)
-function actualizarFechaPanel() {
-  const esHoy = !estado.fechaVista || estado.fechaVista === fechaHoyStr();
-  const label = esHoy ? 'HOY' : formatearFechaStr(estado.fechaVista).toUpperCase().slice(0, 3) === 'HOY'
-    ? 'HOY'
-    : formatearFechaStr(estado.fechaVista).split(',')[0].toUpperCase(); // día de semana
-  const fechaTxt = esHoy ? fechaHoyFormateada() : formatearFechaStr(estado.fechaVista);
-
-  const labelEl = document.getElementById('today-label-txt');
-  const fechaEl = document.getElementById('fecha-hoy');
-  if (labelEl) labelEl.textContent = esHoy ? 'HOY' : formatearFechaStr(estado.fechaVista).split(',')[0].toUpperCase().slice(0,3) === 'LUN'
-    || true ? formatearFechaStr(estado.fechaVista) : label;
-  if (fechaEl) fechaEl.textContent = esHoy ? fechaHoyFormateada() : '';
-
-  // Si es pasado, mostrar la fecha formateada completa como label y sin subtítulo
-  if (!esHoy) {
-    if (labelEl) labelEl.textContent = formatearFechaStr(estado.fechaVista);
-    if (fechaEl) fechaEl.textContent = '';
-  } else {
-    if (labelEl) labelEl.textContent = 'HOY';
-    if (fechaEl) fechaEl.textContent = fechaHoyFormateada();
-  }
-
-  // Cambiar fondo del panel
-  const panelRight = document.getElementById('panel-right');
-  if (panelRight) panelRight.classList.toggle('es-pasado', !esHoy);
-
-  // Actualizar estado de botones de navegación
-  actualizarBotonesNav();
-}
-
-// M3: actualiza habilitación de los botones ← →
-function actualizarBotonesNav() {
-  const btnAnt = document.getElementById('btn-fecha-ant');
-  const btnSig = document.getElementById('btn-fecha-sig');
-  if (!btnAnt || !btnSig) return;
-
-  const fechas = estado.fechasConNotas;
-  const hoy    = fechaHoyStr();
-  const vista  = estado.fechaVista || hoy;
-
-  const idx = fechas.indexOf(vista);
-
-  // Hay anterior si hay fechas y no estamos en la más antigua
-  btnAnt.disabled = fechas.length === 0 || idx === 0 || (idx === -1 && fechas.length === 0);
-
-  // Si la fechaVista es hoy o más reciente que todas → no hay sig; si hay fecha > vista → habilitar
-  const hayMasNueva = fechas.some(f => f > vista);
-  const hayMasVieja = fechas.some(f => f < vista);
-  btnAnt.disabled = !hayMasVieja;
-  btnSig.disabled = !hayMasNueva || vista >= hoy;
-}
-
-// M3: navegar -1 (anterior) o +1 (siguiente) entre fechas con notas
-async function navegarFecha(dir) {
-  const hoy   = fechaHoyStr();
-  const vista = estado.fechaVista || hoy;
-  const fechas = estado.fechasConNotas.slice().sort(); // asc
-
-  let nuevaFecha;
-  if (dir === -1) {
-    // Buscar la más reciente que sea < vista
-    const anteriores = fechas.filter(f => f < vista);
-    if (!anteriores.length) return;
-    nuevaFecha = anteriores[anteriores.length - 1];
-  } else {
-    // Buscar la más antigua que sea > vista
-    const siguientes = fechas.filter(f => f > vista);
-    if (!siguientes.length) return;
-    nuevaFecha = siguientes[0];
-  }
-
-  estado.fechaVista = nuevaFecha === hoy ? null : nuevaFecha;
-  actualizarFechaPanel();
-  await cargarNotasFecha(nuevaFecha);
-}
-
-// M3: carga notas de una fecha específica via GAS
-async function cargarNotasFecha(fecha) {
-  const lista = document.getElementById('notas-list');
-  lista.innerHTML = '<div class="notas-empty"><span class="notas-empty-icon">⏳</span>Cargando…</div>';
-  try {
-    const data = await gasPost({
-      action: 'getNotasFecha',
-      email : estado.usuario?.email || '',
-      fecha
-    });
-    if (data.ok) {
-      // Actualizar el índice de fechas disponibles
-      if (data.fechasDisponibles) {
-        estado.fechasConNotas = data.fechasDisponibles;
-        actualizarBotonesNav();
-      }
-      renderNotasHoy(data.notas || []);
-    }
-  } catch(err) {
-    lista.innerHTML = '<div class="notas-empty"><span class="notas-empty-icon">⚠️</span>Error al cargar.</div>';
-    console.error('Error cargarNotasFecha:', err);
-  }
 }
 
 function escHtml(str) {
@@ -1336,123 +1573,177 @@ function bgParaColor(colorId) {
 }
 
 /* ──────────────────────────────────────────────
-   AUTENTICACIÓN — v5
-   FIX: usa localStorage para persistir entre sesiones.
-   Refresh silencioso del token antes de que expire
-   sin mostrar el selector de cuentas Google.
+   BADGE HOY — v11
+────────────────────────────────────────────── */
+function actualizarBadgeHoy(cantNotas) {
+  const badge = document.getElementById('badge-hoy');
+  if (!badge) return;
+  if (cantNotas > 0) {
+    badge.textContent = cantNotas > 99 ? '99+' : String(cantNotas);
+    badge.classList.add('visible');
+  } else {
+    badge.classList.remove('visible');
+  }
+}
+
+/* ──────────────────────────────────────────────
+   NAVEGACIÓN DE FECHAS
+────────────────────────────────────────────── */
+function actualizarFechaPanel() {
+  const esHoy = !estado.fechaVista || estado.fechaVista === fechaHoyStr();
+
+  const labelEl = document.getElementById('today-label-txt');
+  const fechaEl = document.getElementById('fecha-hoy');
+
+  if (esHoy) {
+    if (labelEl) labelEl.textContent = 'HOY';
+    if (fechaEl) fechaEl.textContent = fechaHoyFormateada();
+  } else {
+    if (labelEl) labelEl.textContent = formatearFechaStr(estado.fechaVista);
+    if (fechaEl) fechaEl.textContent = '';
+  }
+
+  const panelRight = document.getElementById('panel-right');
+  if (panelRight) panelRight.classList.toggle('es-pasado', !esHoy);
+
+  actualizarBotonesNav();
+}
+
+function actualizarBotonesNav() {
+  const btnAnt = document.getElementById('btn-fecha-ant');
+  const btnSig = document.getElementById('btn-fecha-sig');
+  if (!btnAnt || !btnSig) return;
+
+  const hoy   = fechaHoyStr();
+  const vista = estado.fechaVista || hoy;
+
+  btnAnt.disabled = !estado.fechasConNotas.some(f => f < vista);
+  btnSig.disabled = !estado.fechasConNotas.some(f => f > vista) || vista >= hoy;
+}
+
+async function navegarFecha(dir) {
+  const hoy   = fechaHoyStr();
+  const vista = estado.fechaVista || hoy;
+  const fechas = estado.fechasConNotas.slice().sort();
+
+  let nuevaFecha;
+  if (dir === -1) {
+    const anteriores = fechas.filter(f => f < vista);
+    if (!anteriores.length) return;
+    nuevaFecha = anteriores[anteriores.length - 1];
+  } else {
+    const siguientes = fechas.filter(f => f > vista);
+    if (!siguientes.length) return;
+    nuevaFecha = siguientes[0];
+  }
+
+  estado.fechaVista = nuevaFecha === hoy ? null : nuevaFecha;
+  actualizarFechaPanel();
+  await cargarNotasFecha(nuevaFecha);
+}
+
+async function cargarNotasFecha(fecha) {
+  const lista = document.getElementById('notas-list');
+  lista.innerHTML = '<div class="notas-empty"><span class="notas-empty-icon">⏳</span>Cargando…</div>';
+  try {
+    const data = await gasPost({
+      action: 'getNotasFecha',
+      email : estado.usuario?.email || '',
+      fecha
+    });
+    if (data.ok) {
+      if (data.fechasDisponibles) {
+        estado.fechasConNotas = data.fechasDisponibles;
+        actualizarBotonesNav();
+      }
+      renderNotasHoy(data.notas || []);
+    }
+  } catch(err) {
+    lista.innerHTML = '<div class="notas-empty"><span class="notas-empty-icon">⚠️</span>Error al cargar.</div>';
+    console.error('Error cargarNotasFecha:', err);
+  }
+}
+
+/* ──────────────────────────────────────────────
+   AUTENTICACIÓN
 ────────────────────────────────────────────── */
 window.onload = function() {
-  // Restaurar sesión desde localStorage (persiste al cerrar el navegador)
   const guardada = localStorage.getItem('mesa_usuario_v5');
   if (guardada) {
     try {
       const usuario = JSON.parse(guardada);
-      // Verificar que el token guardado no sea demasiado viejo (24 hs)
       if (usuario._ts && (Date.now() - usuario._ts) < 24 * 60 * 60 * 1000) {
         estado.usuario = usuario;
         iniciarApp();
-        // Refresh silencioso en background después de 2s
         setTimeout(refrescarTokenSilencioso, 2000);
         return;
       }
-    } catch { /* token inválido, caer al login normal */ }
+    } catch { }
     localStorage.removeItem('mesa_usuario_v5');
   }
 
-  // Login normal — inicializar Google Identity Services
   google.accounts.id.initialize({
     client_id            : CLIENT_ID,
     callback             : manejarCredencial,
-    auto_select          : true,   // selección automática si hay una sola cuenta
+    auto_select          : true,
     cancel_on_tap_outside: false
   });
-
   google.accounts.id.renderButton(
     document.getElementById('g-btn-wrap'),
     { theme: 'outline', size: 'large', text: 'signin_with_google', shape: 'pill', width: 260 }
   );
-
   google.accounts.id.prompt();
 };
 
-/* Refresh silencioso del token de Google.
-   Se llama cuando la sesión se restaura desde localStorage
-   para renovar el token sin mostrar el popup al usuario.
-   El punto naranja en el header indica que está renovando. */
 function refrescarTokenSilencioso() {
   const dot = document.getElementById('auth-status');
   dot.classList.add('refreshing');
-  dot.title = 'Renovando sesión…';
 
   google.accounts.id.initialize({
     client_id            : CLIENT_ID,
     callback             : function(response) {
-      // Renovar el token guardado silenciosamente
       try {
-        const b64     = response.credential.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+        const b64     = response.credential.split('.')[1].replace(/-/g,'+').replace(/_/g,'/');
         const payload = JSON.parse(atob(b64));
         if (payload.email === estado.usuario.email) {
-          const usuarioActualizado = {
-            email  : payload.email   || '',
-            nombre : payload.name    || '',
-            avatar : payload.picture || '',
-            _ts    : Date.now()
-          };
-          estado.usuario = usuarioActualizado;
-          localStorage.setItem('mesa_usuario_v5', JSON.stringify(usuarioActualizado));
+          const u = { email: payload.email, nombre: payload.name, avatar: payload.picture, _ts: Date.now() };
+          estado.usuario = u;
+          localStorage.setItem('mesa_usuario_v5', JSON.stringify(u));
         }
       } catch(e) {
-        console.warn('No se pudo renovar token silenciosamente:', e.message);
+        console.warn('Token silencioso falló:', e.message);
       } finally {
         dot.classList.remove('refreshing');
-        dot.title = 'Sesión activa';
       }
     },
     auto_select          : true,
     cancel_on_tap_outside: false
   });
 
-  // Intentar prompt silencioso (sin UI visible)
-  google.accounts.id.prompt(notification => {
-    if (notification.isSkippedMoment() || notification.isDismissedMoment()) {
-      // No se pudo renovar silenciosamente, no pasa nada — la sesión
-      // local sigue siendo válida por 24 hs. Sin popup molesto.
-      dot.classList.remove('refreshing');
-      dot.title = 'Sesión activa (local)';
-    }
+  google.accounts.id.prompt(n => {
+    if (n.isSkippedMoment() || n.isDismissedMoment()) dot.classList.remove('refreshing');
   });
 
-  // Programar próxima renovación en 50 minutos (el token dura 1 hora)
   if (estado.tokenRefreshId) clearTimeout(estado.tokenRefreshId);
   estado.tokenRefreshId = setTimeout(refrescarTokenSilencioso, 50 * 60 * 1000);
 }
 
 async function manejarCredencial(response) {
   try {
-    const b64     = response.credential.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const b64     = response.credential.split('.')[1].replace(/-/g,'+').replace(/_/g,'/');
     const payload = JSON.parse(atob(b64));
-    const usuario = {
-      email  : payload.email   || '',
-      nombre : payload.name    || '',
-      avatar : payload.picture || '',
-      _ts    : Date.now()   // timestamp para control de expiración local
-    };
+    const usuario = { email: payload.email, nombre: payload.name, avatar: payload.picture, _ts: Date.now() };
 
     let autorizado = false;
     try {
       const data = await gasPost({ action: 'verificar', email: usuario.email });
       autorizado = !!data.autorizado;
-    } catch (netErr) {
-      console.warn('No se pudo verificar acceso:', netErr.message);
-      autorizado = true; // permitir si GAS no responde; el server filtra en cada call
-    }
+    } catch { autorizado = true; }
 
     if (autorizado) {
       estado.usuario = usuario;
-      // FIX: localStorage en lugar de sessionStorage → persiste al cerrar el navegador
       localStorage.setItem('mesa_usuario_v5', JSON.stringify(usuario));
       iniciarApp();
-      // Programar refresh silencioso
       if (estado.tokenRefreshId) clearTimeout(estado.tokenRefreshId);
       estado.tokenRefreshId = setTimeout(refrescarTokenSilencioso, 50 * 60 * 1000);
     } else {
@@ -1460,7 +1751,6 @@ async function manejarCredencial(response) {
       document.getElementById('denied-screen').style.display = 'flex';
       document.getElementById('denied-email-display').textContent = usuario.email;
     }
-
   } catch(e) {
     console.error('Error en manejarCredencial:', e);
     mostrarToast('⚠ Error al iniciar sesión. Intentá de nuevo.');
@@ -1479,7 +1769,7 @@ function cerrarSesion() {
 }
 
 /* ──────────────────────────────────────────────
-   INICIO DE LA APP
+   INICIO
 ────────────────────────────────────────────── */
 function iniciarApp() {
   document.getElementById('login-screen').style.display = 'none';
@@ -1488,13 +1778,13 @@ function iniciarApp() {
   const av = document.getElementById('hdr-avatar');
   if (estado.usuario.avatar) av.src = estado.usuario.avatar;
 
-  // M2+M3: inicializar fecha al arrancar
-  estado.fechaVista = null; // hoy
+  estado.fechaVista = null;
   actualizarFechaPanel();
 
   iniciarQuill();
   iniciarResizers();
-  iniciarTabsMobile();   // v10.1: tabs en mobile
+  iniciarTabsMobile();
+  iniciarBottomSheet();
   cargarDatos(false);
   cargarPostits();
 
@@ -1527,37 +1817,32 @@ function iniciarQuill() {
 }
 
 /* ──────────────────────────────────────────────
-   RESIZERS (drag para redimensionar columnas)
+   RESIZERS
 ────────────────────────────────────────────── */
 function iniciarResizers() {
-  configurarResizer('resizer-left',  'panel-left',  'postit-col', 'horizontal');
-  configurarResizer('resizer-right', 'postit-col',  null,         'horizontal');
+  configurarResizer('resizer-left',  'panel-left', 'postit-col', 'horizontal');
+  configurarResizer('resizer-right', 'postit-col', null,         'horizontal');
 }
 
 function configurarResizer(resizerId, panelIzqId, panelDerId, _dir) {
   const resizer  = document.getElementById(resizerId);
   const panelIzq = document.getElementById(panelIzqId);
-  const panelDer = panelDerId ? document.getElementById(panelDerId) : null;
   if (!resizer || !panelIzq) return;
 
-  let startX, startWIzq, startWDer;
+  let startX, startWIzq;
 
   resizer.addEventListener('mousedown', e => {
     startX    = e.clientX;
     startWIzq = panelIzq.getBoundingClientRect().width;
-    if (panelDer) startWDer = panelDer.getBoundingClientRect().width;
     resizer.classList.add('dragging');
     document.body.style.cursor     = 'col-resize';
     document.body.style.userSelect = 'none';
 
     function onMove(e) {
-      const dx = e.clientX - startX;
+      const dx   = e.clientX - startX;
       if (panelDerId === 'postit-col') {
-        // Resizer izquierdo: ajusta panel-left
-        const newW = Math.max(280, startWIzq + dx);
-        panelIzq.style.width = newW + 'px';
+        panelIzq.style.width = Math.max(280, startWIzq + dx) + 'px';
       } else {
-        // Resizer derecho: ajusta postit-col
         const newW = Math.max(
           parseInt(getComputedStyle(document.documentElement).getPropertyValue('--postit-min')),
           Math.min(
@@ -1568,7 +1853,6 @@ function configurarResizer(resizerId, panelIzqId, panelDerId, _dir) {
         panelIzq.style.width = newW + 'px';
       }
     }
-
     function onUp() {
       resizer.classList.remove('dragging');
       document.body.style.cursor     = '';
@@ -1576,14 +1860,13 @@ function configurarResizer(resizerId, panelIzqId, panelDerId, _dir) {
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup',   onUp);
     }
-
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup',   onUp);
   });
 }
 
 /* ──────────────────────────────────────────────
-   CARGAR DATOS PRINCIPALES (notas, config, etc.)
+   CARGAR DATOS
 ────────────────────────────────────────────── */
 async function cargarDatos(manual = false) {
   const btnRef = document.getElementById('btn-refresh');
@@ -1592,13 +1875,12 @@ async function cargarDatos(manual = false) {
   icon.parentElement.classList.add('spin');
 
   try {
-    // M2: actualizar la fecha visible en cada recarga
     actualizarFechaPanel();
     const data = await gasPost({ action: 'getData', email: estado.usuario?.email || '' });
     estado.datos = data;
     renderizarDatos(data);
     if (manual) {
-      cargarPostits();   // ← también refresca los PostIts
+      cargarPostits();
       mostrarToast('✓ Datos actualizados');
     }
   } catch (err) {
@@ -1611,7 +1893,7 @@ async function cargarDatos(manual = false) {
 }
 
 /* ──────────────────────────────────────────────
-   RENDERIZADO PRINCIPAL
+   RENDERIZADO
 ────────────────────────────────────────────── */
 function renderizarDatos(data) {
   if (!data || !data.ok) return;
@@ -1631,19 +1913,19 @@ function renderizarDatos(data) {
     document.getElementById('refran-box').textContent = r;
   }
 
-  // M3: actualizar índice de fechas con notas y botones nav
   if (data.fechasDisponibles) {
     estado.fechasConNotas = data.fechasDisponibles;
     actualizarBotonesNav();
   }
 
-  renderEtiquetas(data.etiquetas   || []);
-  // M3: si estamos viendo hoy (o no hay fechaVista), renderizar notas normalmente
+  renderEtiquetas(data.etiquetas || []);
+
   if (!estado.fechaVista || estado.fechaVista === fechaHoyStr()) {
     renderNotasHoy(data.notasHoy || []);
     actualizarFechaPanel();
   }
-  renderToolbar(data.herramientas  || []);
+
+  renderToolbar(data.herramientas || []);
 }
 
 function renderEtiquetas(etiquetas) {
@@ -1669,6 +1951,11 @@ function seleccionarEtiqueta(nombre, chip) {
 function renderNotasHoy(notas) {
   const lista = document.getElementById('notas-list');
   lista.innerHTML = '';
+
+  // v11: actualizar badge tab HOY (solo cuenta notas de hoy)
+  const esHoy = !estado.fechaVista || estado.fechaVista === fechaHoyStr();
+  if (esHoy) actualizarBadgeHoy(notas.length);
+
   if (!notas.length) {
     lista.innerHTML = `
       <div class="notas-empty">
@@ -1681,14 +1968,13 @@ function renderNotasHoy(notas) {
     return;
   }
 
-  const COLLAPSE_H = 80; // px umbral para colapsar (~4 líneas)
+  const COLLAPSE_H  = 80;
   const SVG_CHEVRON = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
 
   notas.forEach(nota => {
     const card = document.createElement('div');
     card.className = 'nota-card';
 
-    // Meta (hora + etiqueta)
     const meta = document.createElement('div');
     meta.className = 'nota-meta';
     meta.innerHTML = `
@@ -1696,10 +1982,8 @@ function renderNotasHoy(notas) {
       <span class="nota-etiq">${escHtml(nota.etiqueta)}</span>`;
     card.appendChild(meta);
 
-    // Wrapper colapsable
     const wrap = document.createElement('div');
     wrap.className = 'nota-contenido-wrap';
-    // Arrancar sin transición para medir limpio
     wrap.style.transition = 'none';
     wrap.style.overflow   = 'hidden';
 
@@ -1708,26 +1992,19 @@ function renderNotasHoy(notas) {
     contenido.innerHTML = nota.contenido;
     wrap.appendChild(contenido);
     card.appendChild(wrap);
-
-    // Insertar en DOM para poder medir
     lista.appendChild(card);
 
     const fullH = wrap.scrollHeight;
-
     if (fullH > COLLAPSE_H) {
-      // Colapsar sin animación (primer render)
       wrap.style.maxHeight = COLLAPSE_H + 'px';
-      // Activar transición para interacciones futuras
       requestAnimationFrame(() => {
         wrap.style.transition = 'max-height .35s cubic-bezier(.4,0,.2,1)';
         wrap.classList.add('collapsed');
       });
 
-      // Botón Ver más / Ver menos
       const btn = document.createElement('button');
       btn.className = 'nota-expand-btn';
       btn.innerHTML = `${SVG_CHEVRON} Ver más`;
-
       let expandido = false;
       btn.addEventListener('click', () => {
         expandido = !expandido;
@@ -1746,7 +2023,6 @@ function renderNotasHoy(notas) {
       });
       card.appendChild(btn);
     } else {
-      // Nota corta: sin restricción
       wrap.style.maxHeight = '';
       wrap.style.overflow  = '';
     }
@@ -1767,13 +2043,13 @@ function renderToolbar(herramientas) {
     a.target    = '_blank';
     a.rel       = 'noopener';
     a.title     = h.nombre;
-    a.innerHTML = `<span class="tool-emoji">${h.emoji || '🔗'}</span><span class="tool-label">${escHtml(h.nombre)}</span>`;
+    a.innerHTML = `<span class="tool-emoji">${h.emoji||'🔗'}</span><span class="tool-label">${escHtml(h.nombre)}</span>`;
     bar.appendChild(a);
   });
 }
 
 /* ──────────────────────────────────────────────
-   GUARDAR NOTA
+   GUARDAR NOTA — v11: incluye horario si toggle activo
 ────────────────────────────────────────────── */
 async function guardarNota() {
   if (!estado.quill)   return;
@@ -1788,20 +2064,41 @@ async function guardarNota() {
   btn.disabled    = true;
   btn.textContent = 'Guardando…';
 
+  // v11: construir payload de horario si el toggle está activo
+  const payload = {
+    action    : 'guardarNota',
+    email     : estado.usuario.email,
+    etiqueta,
+    contenido : contenidoHtml,
+    textoPlano,
+    fechaHora : new Date().toISOString(),
+  };
+
+  if (estado.horarioActivo) {
+    payload.horaInicio  = HORA_SLOTS[estado.horaIdx];
+    payload.duracionMin = DURACION_OPTS[estado.duracionIdx].min;
+  }
+
   try {
-    const data = await gasPost({
-      action    : 'guardarNota',
-      email     : estado.usuario.email,
-      etiqueta,
-      contenido : contenidoHtml,
-      textoPlano,
-      fechaHora : new Date().toISOString()
-    });
+    const data = await gasPost(payload);
 
     if (data.ok) {
-      mostrarToast('✓ Nota guardada · ' + etiqueta);
+      const horarioMsg = estado.horarioActivo
+        ? ` · ${HORA_SLOTS[estado.horaIdx]} (${DURACION_OPTS[estado.duracionIdx].label})`
+        : '';
+      mostrarToast('✓ Nota guardada · ' + etiqueta + horarioMsg);
+
       estado.quill.setContents([]);
-      // M3: al guardar, volver siempre a HOY
+
+      // v11: apagar toggle después de guardar
+      if (estado.horarioActivo) {
+        estado.horarioActivo = false;
+        const toggleEl = document.getElementById('toggle-horario');
+        if (toggleEl) toggleEl.checked = false;
+        document.getElementById('horario-selectores').classList.remove('visible');
+      }
+
+      // Volver a HOY
       estado.fechaVista = null;
       actualizarFechaPanel();
       cargarDatos(false);
@@ -1825,8 +2122,6 @@ async function guardarNota() {
 /* ══════════════════════════════════════════════
    POSTITS
 ══════════════════════════════════════════════ */
-
-/* Cargar todos los PostIts desde GAS */
 async function cargarPostits() {
   try {
     const data = await gasPost({ action: 'getPostIts', email: estado.usuario?.email || '' });
@@ -1839,99 +2134,67 @@ async function cargarPostits() {
   }
 }
 
-/* Renderizar la lista completa de PostIts */
 function renderPostits() {
   const lista = document.getElementById('postit-list');
-  // Preservar el formulario de nuevo postit si está visible
   const nuevoForm = lista.querySelector('.postit-nuevo-form');
-
-  // Limpiar cards existentes (no el form)
   lista.querySelectorAll('.postit-card').forEach(c => c.remove());
-
-  estado.postits.forEach(pi => {
-    const card = crearCardPostit(pi);
-    lista.appendChild(card);
-  });
-
-  // Si el form no estaba, asegurarse de que no quede duplicado
-  // (el form se agrega dinámicamente con mostrarNuevoPostit)
+  estado.postits.forEach(pi => lista.appendChild(crearCardPostit(pi)));
 }
 
-/* Crear el elemento DOM de un PostIt */
 function crearCardPostit(pi) {
   const bg   = bgParaColor(pi.color || 'yellow');
   const card = document.createElement('div');
   card.className        = 'postit-card';
   card.dataset.id       = pi.id;
   card.style.background = bg;
-
-  // ── M4: Drag & drop ─────────────────────────────
-  card.draggable = true;
+  card.draggable        = true;
 
   card.addEventListener('dragstart', e => {
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', pi.id);
-    // Pequeño delay para que el estado visual se vea antes de ocultar
     setTimeout(() => card.classList.add('dragging-src'), 0);
   });
-
   card.addEventListener('dragend', () => {
     card.classList.remove('dragging-src');
-    document.querySelectorAll('.postit-card').forEach(c => {
-      c.classList.remove('drag-over-top', 'drag-over-bottom');
-    });
+    document.querySelectorAll('.postit-card').forEach(c =>
+      c.classList.remove('drag-over-top', 'drag-over-bottom'));
   });
-
   card.addEventListener('dragover', e => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    const rect   = card.getBoundingClientRect();
-    const mitad  = rect.top + rect.height / 2;
-    document.querySelectorAll('.postit-card').forEach(c => {
-      c.classList.remove('drag-over-top', 'drag-over-bottom');
-    });
-    card.classList.add(e.clientY < mitad ? 'drag-over-top' : 'drag-over-bottom');
+    const rect  = card.getBoundingClientRect();
+    document.querySelectorAll('.postit-card').forEach(c =>
+      c.classList.remove('drag-over-top', 'drag-over-bottom'));
+    card.classList.add(e.clientY < rect.top + rect.height / 2 ? 'drag-over-top' : 'drag-over-bottom');
   });
-
-  card.addEventListener('dragleave', () => {
-    card.classList.remove('drag-over-top', 'drag-over-bottom');
-  });
-
+  card.addEventListener('dragleave', () =>
+    card.classList.remove('drag-over-top', 'drag-over-bottom'));
   card.addEventListener('drop', e => {
     e.preventDefault();
     card.classList.remove('drag-over-top', 'drag-over-bottom');
     const idOrigen = e.dataTransfer.getData('text/plain');
     if (!idOrigen || idOrigen === pi.id) return;
-
-    const rect  = card.getBoundingClientRect();
-    const antes = e.clientY < rect.top + rect.height / 2;
-
-    const idxOrigen  = estado.postits.findIndex(p => p.id === idOrigen);
-    const idxDestino = estado.postits.findIndex(p => p.id === pi.id);
-    if (idxOrigen === -1 || idxDestino === -1) return;
-
-    // Reordenar array
-    const [movido] = estado.postits.splice(idxOrigen, 1);
+    const rect    = card.getBoundingClientRect();
+    const antes   = e.clientY < rect.top + rect.height / 2;
+    const idxO    = estado.postits.findIndex(p => p.id === idOrigen);
+    const idxD    = estado.postits.findIndex(p => p.id === pi.id);
+    if (idxO === -1 || idxD === -1) return;
+    const [movido] = estado.postits.splice(idxO, 1);
     const nuevoIdx = estado.postits.findIndex(p => p.id === pi.id);
     estado.postits.splice(antes ? nuevoIdx : nuevoIdx + 1, 0, movido);
-
     renderPostits();
     mostrarToast('📌 PostIt reordenado');
   });
-  // ── Fin drag & drop ──────────────────────────────
 
-  // Texto editable in-place
+  // Texto editable
   const textEl = document.createElement('div');
-  textEl.className     = 'postit-text';
-  textEl.textContent   = pi.texto || '';
-  textEl.title         = 'Click para editar';
-
-  // Activar edición al hacer click
+  textEl.className   = 'postit-text';
+  textEl.textContent = pi.texto || '';
+  textEl.title       = 'Click para editar';
   textEl.addEventListener('click', () => {
     if (textEl.contentEditable !== 'true') {
       textEl.contentEditable = 'true';
       textEl.focus();
-      // Mover cursor al final
       const range = document.createRange();
       range.selectNodeContents(textEl);
       range.collapse(false);
@@ -1939,62 +2202,48 @@ function crearCardPostit(pi) {
       window.getSelection().addRange(range);
     }
   });
-
-  // Guardar al perder foco o Enter (sin Shift)
   textEl.addEventListener('blur', () => {
     textEl.contentEditable = 'false';
     const nuevoTexto = textEl.textContent.trim();
     if (nuevoTexto !== (pi.texto || '').trim() && nuevoTexto) {
       guardarEdicionPostit(pi.id, nuevoTexto, pi.color || 'yellow', card);
     } else if (!nuevoTexto) {
-      textEl.textContent = pi.texto || ''; // revertir si quedó vacío
+      textEl.textContent = pi.texto || '';
     }
   });
-
   textEl.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      textEl.blur();
-    }
-    if (e.key === 'Escape') {
-      textEl.textContent   = pi.texto || '';
-      textEl.contentEditable = 'false';
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); textEl.blur(); }
+    if (e.key === 'Escape') { textEl.textContent = pi.texto || ''; textEl.contentEditable = 'false'; }
   });
 
-  // Selector de colores
+  // Colores
   const coloresEl = document.createElement('div');
   coloresEl.className = 'postit-colors';
   POSTIT_COLORS.forEach(c => {
     const dot = document.createElement('div');
-    dot.className  = 'postit-color-dot' + (c.id === (pi.color || 'yellow') ? ' selected' : '');
+    dot.className = 'postit-color-dot' + (c.id === (pi.color||'yellow') ? ' selected' : '');
     dot.style.background = c.bg;
-    dot.title      = c.label;
+    dot.title = c.label;
     dot.addEventListener('click', e => {
       e.stopPropagation();
-      if (c.id !== pi.color) {
-        cambiarColorPostit(pi.id, pi.texto, c.id, card);
-      }
+      if (c.id !== pi.color) cambiarColorPostit(pi.id, pi.texto, c.id, card);
     });
     coloresEl.appendChild(dot);
   });
 
-  // Pie: autor + hora
+  // Footer
   const footerEl = document.createElement('div');
   footerEl.className = 'postit-footer';
   const autor = pi.autor ? pi.autor.split('@')[0] : '';
   const hora  = pi.fechaHora ? formatearHora(pi.fechaHora) : '';
   footerEl.innerHTML = `<span>${escHtml(autor)}</span><span>${hora}</span>`;
 
-  // Botón borrar
+  // Borrar
   const delBtn = document.createElement('button');
-  delBtn.className   = 'postit-del';
-  delBtn.innerHTML   = '✕';
-  delBtn.title       = 'Borrar PostIt';
-  delBtn.addEventListener('click', e => {
-    e.stopPropagation();
-    borrarPostit(pi.id, card);
-  });
+  delBtn.className = 'postit-del';
+  delBtn.innerHTML = '✕';
+  delBtn.title = 'Borrar PostIt';
+  delBtn.addEventListener('click', e => { e.stopPropagation(); borrarPostit(pi.id, card); });
 
   card.appendChild(delBtn);
   card.appendChild(textEl);
@@ -2003,24 +2252,25 @@ function crearCardPostit(pi) {
   return card;
 }
 
-/* Mostrar formulario de nuevo PostIt en la lista */
+/* Formulario inline desktop */
 function mostrarNuevoPostit() {
   const lista = document.getElementById('postit-list');
-
-  // Evitar duplicados
   if (lista.querySelector('.postit-nuevo-form')) return;
 
   const colorActivo = estado.nuevoPostitColor || 'yellow';
-  const bgActivo    = bgParaColor(colorActivo);
-
   const form = document.createElement('div');
-  form.className    = 'postit-nuevo-form';
+  form.className = 'postit-nuevo-form';
   form.style.padding = '0';
 
-  // Selector de color para el nuevo postit
   const coloresEl = document.createElement('div');
   coloresEl.className = 'postit-colors';
   coloresEl.style.marginBottom = '4px';
+
+  const textarea = document.createElement('textarea');
+  textarea.className   = 'postit-new-input';
+  textarea.placeholder = 'Escribí el recordatorio…';
+  textarea.style.background = bgParaColor(colorActivo);
+
   POSTIT_COLORS.forEach(c => {
     const dot = document.createElement('div');
     dot.className = 'postit-color-dot' + (c.id === colorActivo ? ' selected' : '');
@@ -2035,33 +2285,26 @@ function mostrarNuevoPostit() {
     coloresEl.appendChild(dot);
   });
 
-  const textarea = document.createElement('textarea');
-  textarea.className   = 'postit-new-input';
-  textarea.placeholder = 'Escribí el recordatorio…';
-  textarea.style.background = bgActivo;
-
   const actions = document.createElement('div');
   actions.className = 'postit-new-actions';
 
   const btnOk = document.createElement('button');
-  btnOk.className   = 'btn-pi-ok';
+  btnOk.className = 'btn-pi-ok';
   btnOk.textContent = 'Agregar';
 
   const btnCancel = document.createElement('button');
-  btnCancel.className   = 'btn-pi-cancel';
+  btnCancel.className = 'btn-pi-cancel';
   btnCancel.textContent = 'Cancelar';
 
   btnOk.addEventListener('click', async () => {
     const texto = textarea.value.trim();
     if (!texto) { textarea.focus(); return; }
-    btnOk.disabled    = true;
+    btnOk.disabled = true;
     btnOk.textContent = '…';
     await crearPostit(texto, estado.nuevoPostitColor || 'yellow');
     form.remove();
   });
-
   btnCancel.addEventListener('click', () => form.remove());
-
   textarea.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); btnOk.click(); }
     if (e.key === 'Escape') form.remove();
@@ -2072,12 +2315,85 @@ function mostrarNuevoPostit() {
   form.appendChild(coloresEl);
   form.appendChild(textarea);
   form.appendChild(actions);
-
   lista.insertBefore(form, lista.firstChild);
   textarea.focus();
 }
 
-/* Crear nuevo PostIt vía GAS */
+/* ──────────────────────────────────────────────
+   BOTTOM SHEET — v11
+────────────────────────────────────────────── */
+function iniciarBottomSheet() {
+  // Renderizar dots de color en el bottom sheet
+  const coloresWrap = document.getElementById('bs-colors');
+  coloresWrap.innerHTML = '';
+  POSTIT_COLORS.forEach(c => {
+    const dot = document.createElement('div');
+    dot.className = 'bs-color-dot' + (c.id === estado.bsColor ? ' selected' : '');
+    dot.style.background = c.bg;
+    dot.title = c.label;
+    dot.addEventListener('click', () => {
+      coloresWrap.querySelectorAll('.bs-color-dot').forEach(d => d.classList.remove('selected'));
+      dot.classList.add('selected');
+      estado.bsColor = c.id;
+      document.getElementById('bs-textarea').style.background = c.bg;
+    });
+    coloresWrap.appendChild(dot);
+  });
+}
+
+function abrirBottomSheet() {
+  // Solo en mobile
+  if (!esMobile()) { mostrarNuevoPostit(); return; }
+
+  const sheet   = document.getElementById('postit-bottom-sheet');
+  const overlay = document.getElementById('bs-overlay');
+  const textarea = document.getElementById('bs-textarea');
+
+  // Reset
+  textarea.value = '';
+  textarea.style.background = bgParaColor(estado.bsColor);
+
+  // Mostrar
+  overlay.classList.add('visible');
+  sheet.style.display = 'block';
+  requestAnimationFrame(() => sheet.classList.add('visible'));
+  setTimeout(() => textarea.focus(), 350);
+}
+
+function cerrarBottomSheet() {
+  const sheet   = document.getElementById('postit-bottom-sheet');
+  const overlay = document.getElementById('bs-overlay');
+  sheet.classList.remove('visible');
+  overlay.classList.remove('visible');
+  setTimeout(() => sheet.style.display = 'none', 300);
+}
+
+async function confirmarBottomSheet() {
+  const textarea = document.getElementById('bs-textarea');
+  const texto    = textarea.value.trim();
+  if (!texto) { textarea.focus(); return; }
+
+  const btnOk = document.getElementById('bs-btn-ok');
+  btnOk.disabled    = true;
+  btnOk.textContent = 'Agregando…';
+
+  await crearPostit(texto, estado.bsColor || 'yellow');
+  cerrarBottomSheet();
+  btnOk.disabled    = false;
+  btnOk.textContent = 'Agregar PostIt';
+}
+
+// Cerrar con Escape
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    const sheet = document.getElementById('postit-bottom-sheet');
+    if (sheet.classList.contains('visible')) cerrarBottomSheet();
+  }
+});
+
+/* ──────────────────────────────────────────────
+   POSTIT CRUD
+────────────────────────────────────────────── */
 async function crearPostit(texto, color) {
   try {
     const data = await gasPost({
@@ -2099,20 +2415,11 @@ async function crearPostit(texto, color) {
   }
 }
 
-/* Guardar edición in-place de un PostIt */
 async function guardarEdicionPostit(id, nuevoTexto, color, cardEl) {
-  // Feedback visual inmediato
   cardEl.style.opacity = '0.6';
   try {
-    const data = await gasPost({
-      action: 'editarPostIt',
-      email : estado.usuario?.email || '',
-      id,
-      texto : nuevoTexto,
-      color
-    });
+    const data = await gasPost({ action: 'editarPostIt', email: estado.usuario?.email||'', id, texto: nuevoTexto, color });
     if (data.ok) {
-      // Actualizar en estado local
       const pi = estado.postits.find(p => p.id === id);
       if (pi) pi.texto = nuevoTexto;
       mostrarToast('✏️ PostIt actualizado');
@@ -2126,21 +2433,12 @@ async function guardarEdicionPostit(id, nuevoTexto, color, cardEl) {
   }
 }
 
-/* Cambiar color de un PostIt */
 async function cambiarColorPostit(id, texto, nuevoColor, cardEl) {
   cardEl.style.background = bgParaColor(nuevoColor);
-  // Actualizar selected en los dots del card
-  cardEl.querySelectorAll('.postit-color-dot').forEach(d => {
-    d.classList.toggle('selected', d.style.background === bgParaColor(nuevoColor));
-  });
+  cardEl.querySelectorAll('.postit-color-dot').forEach(d =>
+    d.classList.toggle('selected', d.style.background === bgParaColor(nuevoColor)));
   try {
-    await gasPost({
-      action: 'editarPostIt',
-      email : estado.usuario?.email || '',
-      id,
-      texto,
-      color : nuevoColor
-    });
+    await gasPost({ action: 'editarPostIt', email: estado.usuario?.email||'', id, texto, color: nuevoColor });
     const pi = estado.postits.find(p => p.id === id);
     if (pi) pi.color = nuevoColor;
   } catch(err) {
@@ -2148,26 +2446,18 @@ async function cambiarColorPostit(id, texto, nuevoColor, cardEl) {
   }
 }
 
-/* Borrar un PostIt */
 async function borrarPostit(id, cardEl) {
-  // Animación de salida
   cardEl.style.transition = 'all .2s ease';
   cardEl.style.opacity    = '0';
   cardEl.style.transform  = 'scale(.85)';
-
   setTimeout(async () => {
     cardEl.remove();
     try {
-      const data = await gasPost({
-        action: 'borrarPostIt',
-        email : estado.usuario?.email || '',
-        id
-      });
+      const data = await gasPost({ action: 'borrarPostIt', email: estado.usuario?.email||'', id });
       if (data.ok) {
         estado.postits = estado.postits.filter(p => p.id !== id);
         mostrarToast('🗑 PostIt eliminado');
       } else {
-        // Revertir si falló
         await cargarPostits();
         mostrarToast('⚠ ' + (data.error || 'Error al borrar'));
       }
@@ -2179,10 +2469,7 @@ async function borrarPostit(id, cardEl) {
 }
 
 /* ──────────────────────────────────────────────
-   PWA — Service Worker + Install Prompt (v6)
-────────────────────────────────────────────── */
-/* ──────────────────────────────────────────────
-   MOBILE TABS — v10.1
+   MOBILE TABS — v10.1 + FAB visibility v11
 ────────────────────────────────────────────── */
 const TABS = {
   anotar : 'panel-left',
@@ -2190,41 +2477,40 @@ const TABS = {
   hoy    : 'panel-right',
 };
 
-function esMobile() {
-  return window.innerWidth <= 720;
-}
+function esMobile() { return window.innerWidth <= 720; }
 
 function cambiarTab(tab) {
   if (!esMobile()) return;
 
-  // Paneles: mostrar solo el activo
   Object.entries(TABS).forEach(([key, panelId]) => {
     const panel = document.getElementById(panelId);
     if (panel) panel.classList.toggle('tab-active', key === tab);
   });
-
-  // Tabs: marcar activo
   Object.keys(TABS).forEach(key => {
     const btn = document.getElementById('tab-' + key);
     if (btn) btn.classList.toggle('active', key === tab);
   });
+
+  // Mostrar/ocultar FAB según tab activo
+  const fab = document.getElementById('fab-nuevo-postit');
+  if (fab) fab.style.display = (tab === 'postits') ? 'flex' : 'none';
 }
 
 function iniciarTabsMobile() {
   if (!esMobile()) return;
-  // Activar tab de Anotador por defecto
   cambiarTab('anotar');
 }
 
-// Al resize, si volvemos a desktop quitar clases de tabs
 window.addEventListener('resize', () => {
   if (!esMobile()) {
     Object.values(TABS).forEach(panelId => {
       const panel = document.getElementById(panelId);
       if (panel) panel.classList.remove('tab-active');
     });
+    // Ocultar FAB en desktop
+    const fab = document.getElementById('fab-nuevo-postit');
+    if (fab) fab.style.display = 'none';
   } else {
-    // Si entramos a mobile y no hay ningún tab activo, activar anotar
     const hayActivo = Object.values(TABS).some(id => {
       const p = document.getElementById(id);
       return p && p.classList.contains('tab-active');
@@ -2233,9 +2519,11 @@ window.addEventListener('resize', () => {
   }
 });
 
+/* ──────────────────────────────────────────────
+   PWA
+────────────────────────────────────────────── */
 let deferredInstallPrompt = null;
 
-// Registrar Service Worker
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js')
@@ -2244,16 +2532,13 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-// Capturar el evento de instalación del navegador
 window.addEventListener('beforeinstallprompt', e => {
   e.preventDefault();
   deferredInstallPrompt = e;
-  // Mostrar botón de instalación en el header
   const btn = document.getElementById('btn-instalar-pwa');
   if (btn) btn.style.display = 'flex';
 });
 
-// Ocultar botón si ya está instalada
 window.addEventListener('appinstalled', () => {
   deferredInstallPrompt = null;
   const btn = document.getElementById('btn-instalar-pwa');
@@ -2263,22 +2548,17 @@ window.addEventListener('appinstalled', () => {
 
 function instalarPWA() {
   if (!deferredInstallPrompt) {
-    // En iOS no existe el prompt automático — guiar al usuario
     mostrarToast('En iOS: compartir → "Agregar a pantalla de inicio" 📱', 5000);
     return;
   }
   deferredInstallPrompt.prompt();
   deferredInstallPrompt.userChoice.then(result => {
-    if (result.outcome === 'accepted') {
-      mostrarToast('✅ ¡App instalada!');
-    }
+    if (result.outcome === 'accepted') mostrarToast('✅ ¡App instalada!');
     deferredInstallPrompt = null;
     const btn = document.getElementById('btn-instalar-pwa');
     if (btn) btn.style.display = 'none';
   });
 }
-
 </script>
-
 </body>
 </html>
