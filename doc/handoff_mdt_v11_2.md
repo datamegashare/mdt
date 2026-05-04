@@ -113,11 +113,53 @@ TABS = { anotar:'panel-left', postits:'postit-col', hoy:'panel-right' }
 
 ---
 
+## Mediciones baseline — Mayo 2026
+
+Relevamiento realizado el mismo día del deploy de v11.2, usando el panel Shift+D.  
+Condiciones: desktop Chrome, Buenos Aires, red WiFi, GAS desplegado en cuenta Google personal.
+
+### Tiempos medidos por acción (contenedor caliente)
+
+| Acción | ms típico | Semáforo | Observaciones |
+|---|---|---|---|
+| `getData` | 3600–5800 | 🔴 | Lectura de 5 hojas + verificarUsuario |
+| `guardarNota` | 3700 | 🔴 | Escribe Sheet + Doc + Calendar |
+| `getPostIts` | 2700–3700 | 🔴 | Lectura hoja PostIts |
+| `getNotasFecha` | 4200 | 🔴 | Lectura hoja Notas filtrada por fecha |
+| `crearPostIt` | 3000 | 🔴 | Escritura hoja PostIts |
+| `ping (keep-alive)` | 1660 | 🟡 | Sin lectura de hojas — tiempo base de red+contenedor |
+
+### Cold start documentado
+
+Captura con botón Actualizar después de inactividad (keep-alive countdown en 0:38):
+
+| Llamada | ms | Tipo |
+|---|---|---|
+| `getData` | **6549** 🔴 | Contenedor frío — primera llamada del día |
+| `getPostIts` | **2694** 🟡 | Contenedor ya caliente — llamada inmediatamente siguiente |
+
+**Delta cold start: ~3855ms** — diferencia entre primera y segunda llamada.
+
+### Conclusiones del baseline
+
+1. **El overhead fijo de red + contenedor es ~1660ms** — confirmado por el ping que no lee nada.
+2. **El procesamiento GAS agrega ~1100–2100ms encima** — diferencia entre ping y llamadas reales.
+3. **El cold start agrega ~3855ms adicionales** — solo en la primera llamada tras inactividad >5 min.
+4. **El keep-alive de 4 min debería eliminar el cold start en uso normal** — pendiente confirmar con más días de uso.
+
+### Objetivo de optimización (próxima sesión)
+
+Bajar `getData` y `getPostIts` de ~3500ms → **< 2000ms** con contenedor caliente, atacando:
+- `verificarUsuario()` abre su propio `SpreadsheetApp.getActiveSpreadsheet()` — segunda apertura innecesaria, pasar `ss` como parámetro.
+- `getData` hace 5 llamadas a `getSheetByName()` y 5 lecturas separadas — consolidar en un único bloque de lectura.
+
+---
+
 ## Pendientes
 
-### Próxima sesión
-- [ ] **Comparar métricas** — usar el panel v11.2 durante unos días para registrar tiempos baseline, luego evaluar si hay mejoras que implementar.
-- [ ] **`_ms` del GAS en el panel** — el campo `_ms` que devuelve el GAS ya está en la respuesta JSON pero no se muestra en el panel. Próxima iteración: mostrar `_ms` junto al tiempo total para estimar latencia de red (total - _ms = red).
+### Próxima sesión — PRIORIDAD
+- [ ] **Optimizar GAS v9.3** — eliminar apertura duplicada del Spreadsheet en `verificarUsuario()` y consolidar lecturas en `getDataMesa()`. Objetivo: bajar `getData` de ~3600ms a <2000ms caliente.
+- [ ] **`_ms` del GAS en el panel** — el campo `_ms` ya viene en la respuesta JSON pero no se muestra en el panel. Mostrar como "GAS: Xms / Red: Yms" para desglosar dónde se va el tiempo.
 
 ### Backlog
 - [ ] **Drag & drop touch en mobile** — HTML5 drag no funciona en touch. Implementar con `touchstart` / `touchmove` / `touchend` o librería Sortable.js.
@@ -146,6 +188,24 @@ Reglas de entrega:
 - Versión visible en login (bajo subtítulo) y en header (desktop y mobile).
 - Nombre de archivo siempre incluye versión: index_v11.2.html
 - Finalizar cada sesión con prompt de handoff en archivo .md descargable.
+
+Contexto de la próxima mejora — Optimización GAS (v9.3):
+Baseline medido con panel Shift+D:
+  - getData caliente: ~3600ms | frío: ~6500ms
+  - getPostIts caliente: ~3400ms
+  - ping (sin hojas): ~1660ms → overhead fijo de red+contenedor
+  - Cold start delta: ~3855ms
+
+Problemas identificados en mesa_v9.2.gs:
+  1. verificarUsuario() abre SpreadsheetApp.getActiveSpreadsheet() por su cuenta
+     → genera una segunda apertura del Spreadsheet por cada llamada autenticada
+     → fix: recibir ss como parámetro en lugar de abrirlo internamente
+  2. getDataMesa() hace 5 getSheetByName() + 5 getValues() encadenados
+     → consolidar en un único bloque de lectura batch
+  3. editarPostIt() usa 2 setValue() separados (texto y color)
+     → consolidar en un setValues() sobre el rango completo de la fila
+
+Objetivo: bajar getData de ~3600ms a <2000ms con contenedor caliente.
 
 [Describir la mejora o fix a implementar]
 ```
