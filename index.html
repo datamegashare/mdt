@@ -13,6 +13,15 @@
 <meta name="apple-mobile-web-app-title" content="Mesa">
 <link rel="apple-touch-icon" href="icon-192.png">
 <!--
+  v11.3 — Cambios respecto a v11.2:
+  a. Sesión persistente sin dependencia de Google One Tap (patrón handoff_sesion_persistente_v1.0)
+     → auto_select: false en initialize
+     → window.onload: arranque directo desde localStorage sin chequeo de 24hs
+     → Google se inicializa en background con _esperarGoogleYEjecutar()
+     → Eliminado refrescarTokenSilencioso() y sus setTimeout asociados
+     → cerrarSesion() usa disableAutoSelect() en lugar de prompt()
+-->
+<!--
   v11.2 — Cambios respecto a v11.1:
   a. Color .nota-horario cambiado a violeta (era naranja, se confundía con etiqueta)
   b. Panel de métricas GAS (Shift+D): historial de llamadas, tiempos, indicador semáforo
@@ -1387,7 +1396,7 @@ a { color: inherit; text-decoration: none; }
   <div class="login-box">
     <span class="login-emoji" id="login-emoji">🗂️</span>
     <div class="login-logo" id="login-logo">MESA DE TRABAJO</div>
-    <div class="login-sub">v11.2 · Workspace personal</div>
+    <div class="login-sub">v11.3 · Workspace personal</div>
     <div class="login-title">Accedé con tu cuenta Google</div>
     <div class="login-desc">
       Solo cuentas autorizadas por el administrador<br>
@@ -1420,7 +1429,7 @@ a { color: inherit; text-decoration: none; }
     <!-- hdr-logo y hdr-name se ocultan en mobile por CSS (mejora C) -->
     <span class="hdr-logo" id="hdr-logo">MESA DE TRABAJO</span>
     <span class="hdr-name" id="hdr-nombre"></span>
-    <span class="hdr-version">v11.2</span>
+    <span class="hdr-version">v11.3</span>
     <span class="hdr-sep"></span>
     <span class="hdr-refran" id="hdr-refran"></span>
     <button class="btn-instalar-pwa" id="btn-instalar-pwa" title="Instalar app" style="display:none" onclick="instalarPWA()">
@@ -1631,7 +1640,7 @@ a { color: inherit; text-decoration: none; }
 ────────────────────────────────────────────── */
 const GAS_URL    = 'https://script.google.com/macros/s/AKfycbzhcy1THlO2qwvx8clyaHRN2xAG8hX6rTsXelELjGBA83gm_358f68BHjLJbbX_tTjB/exec';
 const CLIENT_ID  = '985022387906-5h3qtmq6jifdl5jdv77o4amf9nb3mcdn.apps.googleusercontent.com';
-const VERSION_UI = 'v11.2';
+const VERSION_UI = 'v11.3';
 
 /* ──────────────────────────────────────────────
    COLORES POSTITS
@@ -1667,7 +1676,6 @@ const estado = {
   etiqActiva       : null,
   quill            : null,
   refrescoId       : null,
-  tokenRefreshId   : null,
   datos            : null,
   postits          : [],
   nuevoPostitColor : 'yellow',
@@ -2047,68 +2055,54 @@ async function cargarNotasFecha(fecha) {
 }
 
 /* ──────────────────────────────────────────────
-   AUTENTICACIÓN
+   AUTENTICACIÓN — v11.3 (patrón sesión persistente)
 ────────────────────────────────────────────── */
-window.onload = function() {
-  const guardada = localStorage.getItem('mesa_usuario_v5');
-  if (guardada) {
-    try {
-      const usuario = JSON.parse(guardada);
-      if (usuario._ts && (Date.now() - usuario._ts) < 24 * 60 * 60 * 1000) {
-        estado.usuario = usuario;
-        iniciarApp();
-        setTimeout(refrescarTokenSilencioso, 2000);
-        return;
-      }
-    } catch { }
-    localStorage.removeItem('mesa_usuario_v5');
-  }
 
+// ── Helper: esperar que el script de Google cargue ────────────
+function _esperarGoogleYEjecutar(fn) {
+  if (typeof google !== 'undefined') {
+    fn();
+  } else {
+    var iv = setInterval(function() {
+      if (typeof google !== 'undefined') { clearInterval(iv); fn(); }
+    }, 200);
+  }
+}
+
+// ── Inicializar Google Identity (siempre auto_select: false) ──
+function inicializarGoogle() {
   google.accounts.id.initialize({
     client_id            : CLIENT_ID,
     callback             : manejarCredencial,
-    auto_select          : true,
+    auto_select          : false,
     cancel_on_tap_outside: false
   });
   google.accounts.id.renderButton(
     document.getElementById('g-btn-wrap'),
     { theme: 'outline', size: 'large', text: 'signin_with_google', shape: 'pill', width: 260 }
   );
-  google.accounts.id.prompt();
-};
-
-function refrescarTokenSilencioso() {
-  const dot = document.getElementById('auth-status');
-  dot.classList.add('refreshing');
-
-  google.accounts.id.initialize({
-    client_id            : CLIENT_ID,
-    callback             : function(response) {
-      try {
-        const b64     = response.credential.split('.')[1].replace(/-/g,'+').replace(/_/g,'/');
-        const payload = JSON.parse(atob(b64));
-        if (payload.email === estado.usuario.email) {
-          const u = { email: payload.email, nombre: payload.name, avatar: payload.picture, _ts: Date.now() };
-          estado.usuario = u;
-          localStorage.setItem('mesa_usuario_v5', JSON.stringify(u));
-        }
-      } catch(e) {
-        console.warn('Token silencioso falló:', e.message);
-      } finally {
-        dot.classList.remove('refreshing');
-      }
-    },
-    auto_select          : true,
-    cancel_on_tap_outside: false
-  });
-
-  google.accounts.id.prompt(n => {
-    if (n.isSkippedMoment() || n.isDismissedMoment()) dot.classList.remove('refreshing');
-  });
-
-  if (estado.tokenRefreshId) clearTimeout(estado.tokenRefreshId);
-  estado.tokenRefreshId = setTimeout(refrescarTokenSilencioso, 50 * 60 * 1000);
 }
+
+// ── Arranque principal ────────────────────────────────────────
+window.onload = function() {
+  var guardada = localStorage.getItem('mesa_usuario_v5');
+  if (guardada) {
+    try {
+      var usuario = JSON.parse(guardada);
+      if (usuario && usuario.email) {
+        // Sesión previa → entrar directo, sin depender de Google
+        estado.usuario = usuario;
+        iniciarApp();
+        // Google en background (necesario para el botón de logout)
+        _esperarGoogleYEjecutar(inicializarGoogle);
+        return;
+      }
+    } catch(e) { /* JSON inválido */ }
+    localStorage.removeItem('mesa_usuario_v5');
+  }
+  // Sin sesión → mostrar login con botón Google
+  _esperarGoogleYEjecutar(inicializarGoogle);
+};
 
 async function manejarCredencial(response) {
   try {
@@ -2126,8 +2120,6 @@ async function manejarCredencial(response) {
       estado.usuario = usuario;
       localStorage.setItem('mesa_usuario_v5', JSON.stringify(usuario));
       iniciarApp();
-      if (estado.tokenRefreshId) clearTimeout(estado.tokenRefreshId);
-      estado.tokenRefreshId = setTimeout(refrescarTokenSilencioso, 50 * 60 * 1000);
     } else {
       document.getElementById('login-screen').style.display  = 'none';
       document.getElementById('denied-screen').style.display = 'flex';
@@ -2142,12 +2134,11 @@ async function manejarCredencial(response) {
 function cerrarSesion() {
   localStorage.removeItem('mesa_usuario_v5');
   estado.usuario = null;
-  if (estado.refrescoId)     clearInterval(estado.refrescoId);
-  if (estado.tokenRefreshId) clearTimeout(estado.tokenRefreshId);
+  if (estado.refrescoId) clearInterval(estado.refrescoId);
+  google.accounts.id.disableAutoSelect();
   document.getElementById('app').style.display           = 'none';
   document.getElementById('denied-screen').style.display = 'none';
   document.getElementById('login-screen').style.display  = 'flex';
-  google.accounts.id.prompt();
 }
 
 /* ──────────────────────────────────────────────
