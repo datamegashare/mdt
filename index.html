@@ -13,13 +13,21 @@
 <meta name="apple-mobile-web-app-title" content="Mesa">
 <link rel="apple-touch-icon" href="icon-192.png">
 <!--
-  v11.3 — Cambios respecto a v11.2:
-  a. Sesión persistente sin dependencia de Google One Tap (patrón handoff_sesion_persistente_v1.0)
-     → auto_select: false en initialize
-     → window.onload: arranque directo desde localStorage sin chequeo de 24hs
-     → Google se inicializa en background con _esperarGoogleYEjecutar()
-     → Eliminado refrescarTokenSilencioso() y sus setTimeout asociados
-     → cerrarSesion() usa disableAutoSelect() en lugar de prompt()
+  v12.0 — Cambios respecto a v11.3:
+  a. Registrador de tareas (desktop only):
+     → Botón 🍅 en header del Anotador → panel flotante
+     → Selección de etiqueta + tarea (desde hoja Tareas del Sheet)
+     → Cronómetro con barra de progreso 25 min
+     → Alarma sonora + notificación visual cada 25 min
+     → Al finalizar: pre-carga anotador con etiqueta, tarea y toggle horario
+  b. Semáforo de sincronización:
+     → Flag estado.guardando previene doble submit en 4G/latencia alta
+     → Aplica a crearPostit, confirmarBottomSheet, guardarEdicionPostit, guardarNota
+  c. Marcas con color:
+     → Selector multi-chip siempre visible debajo del editor Quill
+     → Pills de color cargadas desde hoja Marcas del Sheet
+     → Se serializan en HTML de la nota y en columna Texto para búsqueda
+  GAS: mesa_v10.gs
 -->
 <!--
   v11.2 — Cambios respecto a v11.1:
@@ -1387,6 +1395,301 @@ a { color: inherit; text-decoration: none; }
     width : auto;
   }
 }
+
+/* ─────────────────────────────────────────────────
+   REGISTRADOR DE TAREAS — v12 (desktop only)
+───────────────────────────────────────────────── */
+#btn-registrador {
+  background   : transparent;
+  border       : 1px solid rgba(255,255,255,.18);
+  color        : rgba(255,255,255,.7);
+  border-radius: var(--radius-sm);
+  padding      : 5px 8px;
+  font-size    : .85rem;
+  line-height  : 1;
+  cursor       : pointer;
+  transition   : all .15s;
+  display      : flex;
+  align-items  : center;
+  gap          : 4px;
+  font-family  : inherit;
+}
+#btn-registrador:hover  { background: rgba(255,255,255,.08); color: #fff; }
+#btn-registrador.activo { color: #f97316; border-color: #f97316; background: rgba(249,115,22,.12); }
+
+#panel-registrador {
+  display      : none;
+  position     : fixed;
+  top          : calc(var(--header-h) + 56px);  /* debajo del header + panel-header anotador */
+  left         : 20px;
+  width        : 256px;
+  background   : var(--surface);
+  border       : 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow   : var(--shadow-md);
+  z-index      : 500;
+  overflow     : hidden;
+  flex-direction: column;
+}
+#panel-registrador.visible { display: flex; }
+
+.reg-header {
+  display        : flex;
+  align-items    : center;
+  gap            : 8px;
+  padding        : 11px 14px 9px;
+  border-bottom  : 1px solid var(--border);
+  background     : #fafafa;
+}
+.reg-title {
+  font-size     : .67rem;
+  font-weight   : 600;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color         : var(--muted);
+  flex          : 1;
+}
+.reg-close {
+  background: transparent;
+  border    : none;
+  color     : var(--muted);
+  font-size : .9rem;
+  cursor    : pointer;
+  padding   : 0 2px;
+  line-height: 1;
+}
+.reg-close:hover { color: var(--text); }
+
+.reg-section {
+  padding      : 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.reg-label {
+  font-size     : .62rem;
+  font-weight   : 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color         : var(--muted);
+  margin-bottom : 5px;
+}
+.reg-select {
+  width        : 100%;
+  padding      : 6px 8px;
+  font-size    : .78rem;
+  border       : 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background   : var(--surface);
+  color        : var(--text);
+  font-family  : inherit;
+  outline      : none;
+  transition   : border-color .15s;
+}
+.reg-select:focus { border-color: #f97316; }
+
+.btn-reg-iniciar {
+  width        : 100%;
+  padding      : 9px;
+  background   : #fff7ed;
+  color        : #9a3412;
+  border       : 1px solid #fdba74;
+  border-radius: var(--radius-sm);
+  font-size    : .8rem;
+  font-weight  : 600;
+  font-family  : inherit;
+  cursor       : pointer;
+  display      : flex;
+  align-items  : center;
+  justify-content: center;
+  gap          : 6px;
+  transition   : all .15s;
+  margin       : 10px 14px;
+}
+.btn-reg-iniciar:hover { background: #ffedd5; }
+.btn-reg-iniciar:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Estado activo del registrador */
+.reg-tarea-activa {
+  padding    : 8px 14px 4px;
+  font-size  : .72rem;
+  color      : var(--muted);
+  display    : flex;
+  align-items: center;
+  gap        : 6px;
+}
+.reg-dot {
+  width        : 7px;
+  height       : 7px;
+  border-radius: 50%;
+  background   : #f97316;
+  flex-shrink  : 0;
+  animation    : pulse-reg 1.2s ease infinite;
+}
+@keyframes pulse-reg { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+.reg-cronometro {
+  text-align : center;
+  padding    : 6px 14px 2px;
+}
+.reg-tiempo {
+  font-family   : 'Bebas Neue', sans-serif;
+  font-size     : 2.2rem;
+  letter-spacing: 3px;
+  color         : var(--text);
+  line-height   : 1;
+}
+.reg-tiempo-label {
+  font-size  : .62rem;
+  color      : var(--muted);
+  margin-top : 2px;
+}
+.reg-progress-wrap {
+  padding: 8px 14px 4px;
+}
+.reg-progress-bar {
+  height       : 4px;
+  background   : var(--border);
+  border-radius: 99px;
+  overflow     : hidden;
+}
+.reg-progress-fill {
+  height          : 4px;
+  background      : #f97316;
+  border-radius   : 99px;
+  width           : 0%;
+  transition      : width .5s linear;
+}
+.reg-progress-meta {
+  display        : flex;
+  justify-content: space-between;
+  font-size      : .6rem;
+  color          : var(--muted);
+  margin-top     : 3px;
+}
+.reg-ciclo {
+  text-align : center;
+  font-size  : .67rem;
+  color      : var(--muted);
+  padding    : 2px 0 6px;
+}
+.reg-ciclo span { color: #f97316; font-weight: 600; }
+
+.reg-btns {
+  display : flex;
+  gap     : 8px;
+  padding : 10px 14px;
+}
+.btn-reg-cancelar {
+  flex         : 1;
+  padding      : 7px;
+  font-size    : .76rem;
+  border-radius: var(--radius-sm);
+  border       : 1px solid var(--border);
+  background   : var(--surface);
+  color        : var(--muted);
+  font-family  : inherit;
+  cursor       : pointer;
+  transition   : all .15s;
+}
+.btn-reg-cancelar:hover { background: #f8fafc; color: var(--text); }
+.btn-reg-finalizar {
+  flex         : 1;
+  padding      : 7px;
+  font-size    : .76rem;
+  font-weight  : 600;
+  border-radius: var(--radius-sm);
+  border       : 1px solid #fdba74;
+  background   : #fff7ed;
+  color        : #9a3412;
+  font-family  : inherit;
+  cursor       : pointer;
+  transition   : all .15s;
+}
+.btn-reg-finalizar:hover { background: #ffedd5; }
+
+/* Notificación de ciclo completado */
+#reg-notif {
+  display      : none;
+  position     : fixed;
+  top          : calc(var(--header-h) + 8px);
+  left         : 50%;
+  transform    : translateX(-50%);
+  background   : var(--accent2);
+  color        : #fff;
+  padding      : 12px 24px;
+  border-radius: var(--radius-sm);
+  font-size    : .82rem;
+  font-weight  : 500;
+  z-index      : 9998;
+  box-shadow   : var(--shadow-md);
+  text-align   : center;
+  white-space  : nowrap;
+}
+#reg-notif.visible { display: block; }
+
+/* Ocultar registrador en mobile */
+@media (max-width: 720px) {
+  #btn-registrador    { display: none; }
+  #panel-registrador  { display: none !important; }
+  #reg-notif          { display: none !important; }
+}
+
+/* ─────────────────────────────────────────────────
+   MARCAS — v12
+───────────────────────────────────────────────── */
+#marcas-wrap {
+  padding      : 8px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink  : 0;
+  background   : #fafafa;
+}
+.marcas-label {
+  font-size     : .67rem;
+  font-weight   : 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color         : var(--muted);
+  margin-bottom : 6px;
+}
+#marcas-list {
+  display  : flex;
+  flex-wrap: wrap;
+  gap      : 5px;
+  min-height: 24px;
+}
+.marca-chip {
+  padding      : 3px 10px;
+  border-radius: 99px;
+  font-size    : .72rem;
+  font-weight  : 600;
+  border       : 1.5px solid transparent;
+  cursor       : pointer;
+  transition   : all .15s;
+  user-select  : none;
+  opacity      : .65;
+}
+.marca-chip:hover  { opacity: .85; }
+.marca-chip.active { opacity: 1; border-color: rgba(0,0,0,.25); box-shadow: 0 0 0 2px rgba(0,0,0,.10); }
+.marcas-empty-msg {
+  font-size : .7rem;
+  color     : var(--muted);
+  font-style: italic;
+}
+
+/* Pills de marca en panel HOY (renderizado desde HTML) */
+.nota-contenido .marca-pill {
+  display       : inline-flex;
+  align-items   : center;
+  padding       : 2px 10px;
+  border-radius : 99px;
+  font-size     : .7rem;
+  font-weight   : 600;
+  margin        : 0 3px 0 0;
+  letter-spacing: .02em;
+}
+.nota-contenido .marcas-wrap {
+  margin-top : 6px;
+  line-height: 2;
+}
 </style>
 </head>
 <body>
@@ -1396,7 +1699,7 @@ a { color: inherit; text-decoration: none; }
   <div class="login-box">
     <span class="login-emoji" id="login-emoji">🗂️</span>
     <div class="login-logo" id="login-logo">MESA DE TRABAJO</div>
-    <div class="login-sub">v11.3 · Workspace personal</div>
+    <div class="login-sub">v12.0 · Workspace personal</div>
     <div class="login-title">Accedé con tu cuenta Google</div>
     <div class="login-desc">
       Solo cuentas autorizadas por el administrador<br>
@@ -1429,7 +1732,7 @@ a { color: inherit; text-decoration: none; }
     <!-- hdr-logo y hdr-name se ocultan en mobile por CSS (mejora C) -->
     <span class="hdr-logo" id="hdr-logo">MESA DE TRABAJO</span>
     <span class="hdr-name" id="hdr-nombre"></span>
-    <span class="hdr-version">v11.3</span>
+    <span class="hdr-version">v12.0</span>
     <span class="hdr-sep"></span>
     <span class="hdr-refran" id="hdr-refran"></span>
     <button class="btn-instalar-pwa" id="btn-instalar-pwa" title="Instalar app" style="display:none" onclick="instalarPWA()">
@@ -1457,10 +1760,18 @@ a { color: inherit; text-decoration: none; }
       <div class="panel-header">
         <span style="font-size:.9rem">✏️</span>
         <span class="panel-title">Anotador</span>
+        <span style="flex:1"></span>
+        <button id="btn-registrador" onclick="toggleRegistrador()" title="Registrador de tareas">🍅</button>
       </div>
       <div id="etiquetas-wrap">
         <div class="etiq-label">Etiqueta</div>
         <div id="etiquetas-list"></div>
+      </div>
+
+      <!-- MARCAS — v12 -->
+      <div id="marcas-wrap">
+        <div class="marcas-label">Marcas</div>
+        <div id="marcas-list"><span class="marcas-empty-msg">Cargando marcas…</span></div>
       </div>
 
       <!-- TOGGLE HORARIO — v11 -->
@@ -1596,6 +1907,63 @@ a { color: inherit; text-decoration: none; }
   </div>
 </div>
 
+<!-- REGISTRADOR DE TAREAS — v12 (desktop only) -->
+<div id="panel-registrador" role="dialog" aria-label="Registrador de tareas">
+  <!-- Estado: reposo -->
+  <div id="reg-estado-reposo">
+    <div class="reg-header">
+      <span style="font-size:.9rem">🍅</span>
+      <span class="reg-title">Registrador</span>
+      <button class="reg-close" onclick="toggleRegistrador()" title="Cerrar">✕</button>
+    </div>
+    <div class="reg-section">
+      <div class="reg-label">Etiqueta</div>
+      <select class="reg-select" id="reg-select-etiqueta"></select>
+    </div>
+    <div class="reg-section">
+      <div class="reg-label">Tarea</div>
+      <select class="reg-select" id="reg-select-tarea">
+        <option value="">— seleccioná una tarea —</option>
+      </select>
+    </div>
+    <button class="btn-reg-iniciar" id="btn-reg-iniciar" onclick="iniciarTarea()">
+      ▶ Iniciar tarea
+    </button>
+  </div>
+  <!-- Estado: activo -->
+  <div id="reg-estado-activo" style="display:none">
+    <div class="reg-header">
+      <span style="font-size:.9rem">🍅</span>
+      <span class="reg-title">En curso</span>
+      <button class="reg-close" onclick="toggleRegistrador()" title="Cerrar">✕</button>
+    </div>
+    <div class="reg-tarea-activa">
+      <div class="reg-dot"></div>
+      <span id="reg-tarea-nombre" style="font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+    </div>
+    <div class="reg-cronometro">
+      <div class="reg-tiempo" id="reg-tiempo">00:00</div>
+      <div class="reg-tiempo-label">transcurrido en este ciclo</div>
+    </div>
+    <div class="reg-progress-wrap">
+      <div class="reg-progress-bar">
+        <div class="reg-progress-fill" id="reg-progress-fill"></div>
+      </div>
+      <div class="reg-progress-meta">
+        <span>0 min</span><span>25 min</span>
+      </div>
+    </div>
+    <div class="reg-ciclo">Ciclo <span id="reg-ciclo-num">1</span> de 25 min</div>
+    <div class="reg-btns">
+      <button class="btn-reg-cancelar" onclick="cancelarTarea()">Cancelar</button>
+      <button class="btn-reg-finalizar" onclick="finalizarTarea()">✓ Finalizar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Notificación ciclo completado -->
+<div id="reg-notif">🍅 ¿Terminaste la tarea? — <button onclick="finalizarTarea()" style="background:var(--accent);color:#fff;border:none;border-radius:4px;padding:3px 10px;font-size:.78rem;cursor:pointer;font-family:inherit;margin-left:8px;">Finalizar</button> <button onclick="continuarTarea()" style="background:transparent;color:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:3px 10px;font-size:.78rem;cursor:pointer;font-family:inherit;margin-left:4px;">Continuar</button></div>
+
 <!-- PANEL DE MÉTRICAS — v11.2 -->
 <div id="metrics-panel" role="dialog" aria-label="Panel de métricas GAS">
   <div class="mtr-header">
@@ -1640,7 +2008,7 @@ a { color: inherit; text-decoration: none; }
 ────────────────────────────────────────────── */
 const GAS_URL    = 'https://script.google.com/macros/s/AKfycbzhcy1THlO2qwvx8clyaHRN2xAG8hX6rTsXelELjGBA83gm_358f68BHjLJbbX_tTjB/exec';
 const CLIENT_ID  = '985022387906-5h3qtmq6jifdl5jdv77o4amf9nb3mcdn.apps.googleusercontent.com';
-const VERSION_UI = 'v11.3';
+const VERSION_UI = 'v12.0';
 
 /* ──────────────────────────────────────────────
    COLORES POSTITS
@@ -1679,13 +2047,29 @@ const estado = {
   datos            : null,
   postits          : [],
   nuevoPostitColor : 'yellow',
-  bsColor          : 'yellow',        // color seleccionado en bottom sheet
+  bsColor          : 'yellow',
   fechaVista       : null,
   fechasConNotas   : [],
   // v11 — toggle horario
   horarioActivo    : false,
-  horaIdx          : 0,               // índice en el array de horas cada 30 min
-  duracionIdx      : 1,               // índice en DURACION_OPTS (default 1h)
+  horaIdx          : 0,
+  duracionIdx      : 1,
+  // v12 — semáforo de sincronización
+  guardando        : false,
+  // v12 — marcas seleccionadas
+  marcasActivas    : [],       // array de { nombre, color }
+  marcasDisponibles: [],       // todas las marcas del Sheet
+  // v12 — registrador de tareas
+  reg: {
+    activo      : false,
+    etiqueta    : '',
+    tarea       : '',
+    horaInicio  : null,       // Date del momento de inicio
+    segSegundos : 0,          // segundos transcurridos en el ciclo actual
+    cicloNum    : 1,          // número de ciclo 25-min actual
+    timerId     : null,       // setInterval del cronómetro
+    tareas      : [],         // lista completa de tareas del Sheet
+  }
 };
 
 /* ──────────────────────────────────────────────
@@ -1751,6 +2135,315 @@ function onToggleHorario() {
   } else {
     selectores.classList.remove('visible');
   }
+}
+
+/* ──────────────────────────────────────────────
+   MARCAS — v12
+────────────────────────────────────────────── */
+
+// Mapa de colores en inglés a valores CSS
+const MARCA_COLORS = {
+  red    : { bg: '#fee2e2', fg: '#991b1b', border: '#fca5a5' },
+  orange : { bg: '#ffedd5', fg: '#9a3412', border: '#fdba74' },
+  yellow : { bg: '#fef9c3', fg: '#854d0e', border: '#fde047' },
+  green  : { bg: '#dcfce7', fg: '#166534', border: '#86efac' },
+  blue   : { bg: '#dbeafe', fg: '#1e40af', border: '#93c5fd' },
+  indigo : { bg: '#e0e7ff', fg: '#3730a3', border: '#a5b4fc' },
+  purple : { bg: '#f3e8ff', fg: '#6b21a8', border: '#d8b4fe' },
+  pink   : { bg: '#fce7f3', fg: '#9d174d', border: '#f9a8d4' },
+  teal   : { bg: '#ccfbf1', fg: '#134e4a', border: '#5eead4' },
+  gray   : { bg: '#f1f5f9', fg: '#475569', border: '#cbd5e1' },
+};
+
+function renderMarcas(marcas) {
+  const lista = document.getElementById('marcas-list');
+  if (!lista) return;
+  estado.marcasDisponibles = marcas || [];
+  lista.innerHTML = '';
+
+  if (!marcas || marcas.length === 0) {
+    lista.innerHTML = '<span class="marcas-empty-msg">Sin marcas configuradas. Agregá en hoja "Marcas".</span>';
+    return;
+  }
+
+  marcas.forEach(m => {
+    const c = MARCA_COLORS[m.color] || MARCA_COLORS['gray'];
+    const chip = document.createElement('button');
+    chip.className = 'marca-chip';
+    chip.textContent = m.nombre;
+    chip.dataset.nombre = m.nombre;
+    chip.dataset.color  = m.color;
+    chip.style.background = c.bg;
+    chip.style.color      = c.fg;
+    chip.style.borderColor = c.border;
+    chip.onclick = () => toggleMarca(m, chip);
+    lista.appendChild(chip);
+  });
+}
+
+function toggleMarca(marca, chip) {
+  const idx = estado.marcasActivas.findIndex(m => m.nombre === marca.nombre);
+  if (idx === -1) {
+    estado.marcasActivas.push(marca);
+    chip.classList.add('active');
+  } else {
+    estado.marcasActivas.splice(idx, 1);
+    chip.classList.remove('active');
+  }
+}
+
+function limpiarMarcasSeleccionadas() {
+  estado.marcasActivas = [];
+  document.querySelectorAll('.marca-chip').forEach(c => c.classList.remove('active'));
+}
+
+/* ──────────────────────────────────────────────
+   REGISTRADOR DE TAREAS — v12 (desktop only)
+────────────────────────────────────────────── */
+
+const REG_CICLO_SEG = 25 * 60;  // 25 minutos en segundos
+
+function toggleRegistrador() {
+  const panel = document.getElementById('panel-registrador');
+  if (!panel) return;
+  panel.classList.toggle('visible');
+  const btn = document.getElementById('btn-registrador');
+  if (btn) btn.classList.toggle('activo', panel.classList.contains('visible'));
+}
+
+function renderTareasEnRegistrador(tareas) {
+  estado.reg.tareas = tareas || [];
+  const sel = document.getElementById('reg-select-tarea');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">— seleccioná una tarea —</option>';
+  tareas.forEach((t, i) => {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = t.tarea;
+    opt.dataset.etiqueta = t.etiqueta;
+    sel.appendChild(opt);
+  });
+}
+
+function renderEtiquetasEnRegistrador(etiquetas) {
+  const sel = document.getElementById('reg-select-etiqueta');
+  if (!sel) return;
+  sel.innerHTML = '';
+  (etiquetas || []).forEach(e => {
+    const opt = document.createElement('option');
+    opt.value       = e;
+    opt.textContent = e;
+    sel.appendChild(opt);
+  });
+}
+
+// Al cambiar tarea, sincronizar etiqueta si la tarea tiene una asignada
+document.addEventListener('DOMContentLoaded', () => {
+  const selTarea = document.getElementById('reg-select-tarea');
+  if (selTarea) {
+    selTarea.addEventListener('change', () => {
+      const opt = selTarea.options[selTarea.selectedIndex];
+      if (opt && opt.dataset.etiqueta) {
+        const selEtiq = document.getElementById('reg-select-etiqueta');
+        if (selEtiq) {
+          for (let i = 0; i < selEtiq.options.length; i++) {
+            if (selEtiq.options[i].value === opt.dataset.etiqueta) {
+              selEtiq.selectedIndex = i;
+              break;
+            }
+          }
+        }
+      }
+    });
+  }
+});
+
+function iniciarTarea() {
+  const selTarea = document.getElementById('reg-select-tarea');
+  const selEtiq  = document.getElementById('reg-select-etiqueta');
+
+  const idxTarea  = selTarea ? selTarea.value : '';
+  const etiqueta  = selEtiq  ? selEtiq.value  : '';
+
+  if (idxTarea === '' || idxTarea === undefined) {
+    mostrarToast('⚠ Seleccioná una tarea para iniciar.');
+    return;
+  }
+
+  const tarea = estado.reg.tareas[parseInt(idxTarea)];
+  if (!tarea) return;
+
+  estado.reg.activo     = true;
+  estado.reg.etiqueta   = etiqueta;
+  estado.reg.tarea      = tarea.tarea;
+  estado.reg.horaInicio = new Date();
+  estado.reg.segSegundos = 0;
+  estado.reg.cicloNum   = 1;
+
+  // Actualizar UI
+  document.getElementById('reg-estado-reposo').style.display = 'none';
+  document.getElementById('reg-estado-activo').style.display = 'block';
+  document.getElementById('reg-tarea-nombre').textContent = etiqueta + ' · ' + tarea.tarea;
+  document.getElementById('reg-ciclo-num').textContent = '1';
+  const btn = document.getElementById('btn-registrador');
+  if (btn) btn.classList.add('activo');
+
+  // Asegurar panel visible
+  document.getElementById('panel-registrador').classList.add('visible');
+
+  actualizarCronometro();
+  estado.reg.timerId = setInterval(tickRegistrador, 1000);
+  mostrarToast('🍅 Tarea iniciada: ' + tarea.tarea);
+}
+
+function tickRegistrador() {
+  estado.reg.segSegundos++;
+
+  // Ciclo de 25 min completado
+  if (estado.reg.segSegundos >= REG_CICLO_SEG) {
+    reproducirAlarma();
+    mostrarNotifCiclo();
+    // No reiniciar automáticamente — esperar acción del usuario
+    clearInterval(estado.reg.timerId);
+  }
+
+  actualizarCronometro();
+}
+
+function actualizarCronometro() {
+  const seg = estado.reg.segSegundos;
+  const m   = Math.floor(seg / 60);
+  const s   = seg % 60;
+  const display = String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+
+  const elTiempo = document.getElementById('reg-tiempo');
+  if (elTiempo) elTiempo.textContent = display;
+
+  const pct = Math.min(100, (seg / REG_CICLO_SEG) * 100);
+  const fill = document.getElementById('reg-progress-fill');
+  if (fill) fill.style.width = pct + '%';
+}
+
+function reproducirAlarma() {
+  try {
+    const ctx  = new (window.AudioContext || window.webkitAudioContext)();
+    const beep = (freq, start, dur) => {
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = freq;
+      osc.type = 'sine';
+      gain.gain.setValueAtTime(0.4, ctx.currentTime + start);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
+      osc.start(ctx.currentTime + start);
+      osc.stop(ctx.currentTime + start + dur + 0.05);
+    };
+    beep(880, 0,    0.18);
+    beep(880, 0.22, 0.18);
+    beep(1100, 0.5, 0.35);
+  } catch(e) {
+    // AudioContext no disponible, sin alarma sonora
+  }
+}
+
+function mostrarNotifCiclo() {
+  const notif = document.getElementById('reg-notif');
+  if (notif) notif.classList.add('visible');
+  setTimeout(() => {
+    if (notif) notif.classList.remove('visible');
+  }, 12000);
+}
+
+function ocultarNotifCiclo() {
+  const notif = document.getElementById('reg-notif');
+  if (notif) notif.classList.remove('visible');
+}
+
+function continuarTarea() {
+  ocultarNotifCiclo();
+  estado.reg.cicloNum++;
+  estado.reg.segSegundos = 0;
+  document.getElementById('reg-ciclo-num').textContent = estado.reg.cicloNum;
+  actualizarCronometro();
+  estado.reg.timerId = setInterval(tickRegistrador, 1000);
+  mostrarToast('🍅 Ciclo ' + estado.reg.cicloNum + ' iniciado');
+}
+
+function cancelarTarea() {
+  ocultarNotifCiclo();
+  clearInterval(estado.reg.timerId);
+  estado.reg.activo = false;
+
+  document.getElementById('reg-estado-activo').style.display = 'none';
+  document.getElementById('reg-estado-reposo').style.display = 'block';
+
+  const btn = document.getElementById('btn-registrador');
+  if (btn) btn.classList.remove('activo');
+
+  mostrarToast('🍅 Tarea cancelada');
+}
+
+function finalizarTarea() {
+  ocultarNotifCiclo();
+  clearInterval(estado.reg.timerId);
+
+  const ahora     = new Date();
+  const horaInicio = estado.reg.horaInicio;
+  const hh = String(horaInicio.getHours()).padStart(2,'0');
+  const mm = String(horaInicio.getMinutes()).padStart(2,'0');
+  const horaInicioStr = hh + ':' + mm;
+
+  // Calcular duración total en minutos (redondeada a opción más cercana de DURACION_OPTS)
+  const durTotalMin = Math.max(1, Math.round((ahora - horaInicio) / 60000));
+  // Buscar la opción de duración más cercana
+  let durIdx = 0;
+  let menorDif = Infinity;
+  DURACION_OPTS.forEach((opt, i) => {
+    const dif = Math.abs(opt.min - durTotalMin);
+    if (dif < menorDif) { menorDif = dif; durIdx = i; }
+  });
+
+  // Pre-cargar anotador
+  const etiqueta = estado.reg.etiqueta;
+  const tarea    = estado.reg.tarea;
+
+  // Seleccionar etiqueta en el anotador
+  const chips = document.querySelectorAll('.etiq-chip');
+  chips.forEach(c => {
+    if (c.textContent === etiqueta) seleccionarEtiqueta(etiqueta, c);
+  });
+
+  // Activar toggle horario
+  estado.horarioActivo = true;
+  const toggleEl = document.getElementById('toggle-horario');
+  if (toggleEl) toggleEl.checked = true;
+
+  // Fijar hora inicio y duración
+  const idxHora = HORA_SLOTS.indexOf(horaInicioStr);
+  estado.horaIdx     = idxHora >= 0 ? idxHora : horaSlotMasCercana();
+  estado.duracionIdx = durIdx;
+  document.getElementById('horario-selectores').classList.add('visible');
+  actualizarPickerDisplay();
+
+  // Escribir tarea en Quill
+  if (estado.quill) {
+    estado.quill.setContents([]);
+    estado.quill.insertText(0, tarea);
+  }
+
+  // Resetear registrador
+  estado.reg.activo = false;
+  document.getElementById('reg-estado-activo').style.display = 'none';
+  document.getElementById('reg-estado-reposo').style.display = 'block';
+  document.getElementById('panel-registrador').classList.remove('visible');
+  const btn = document.getElementById('btn-registrador');
+  if (btn) btn.classList.remove('activo');
+
+  mostrarToast('🍅 Tarea finalizada — anotador listo para guardar');
+
+  // Llevar foco al anotador
+  if (estado.quill) setTimeout(() => estado.quill.focus(), 100);
 }
 
 /* ──────────────────────────────────────────────
@@ -2296,6 +2989,11 @@ function renderizarDatos(data) {
 
   renderEtiquetas(data.etiquetas || []);
 
+  // v12: marcas y tareas
+  renderMarcas(data.marcas || []);
+  renderTareasEnRegistrador(data.tareas || []);
+  renderEtiquetasEnRegistrador(data.etiquetas || []);
+
   if (!estado.fechaVista || estado.fechaVista === fechaHoyStr()) {
     renderNotasHoy(data.notasHoy || []);
     actualizarFechaPanel();
@@ -2430,6 +3128,8 @@ function renderToolbar(herramientas) {
 async function guardarNota() {
   if (!estado.quill)   return;
   if (!estado.usuario) { mostrarToast('⚠ No estás autenticado.'); return; }
+  // v12: semáforo
+  if (estado.guardando) { mostrarToast('⏳ Espera, hay un guardado en curso.'); return; }
 
   const contenidoHtml = estado.quill.getSemanticHTML();
   const textoPlano    = estado.quill.getText().trim();
@@ -2437,10 +3137,10 @@ async function guardarNota() {
 
   const btn      = document.getElementById('btn-guardar');
   const etiqueta = estado.etiqActiva || 'General';
+  estado.guardando = true;
   btn.disabled    = true;
   btn.textContent = 'Guardando…';
 
-  // v11: construir payload de horario si el toggle está activo
   const payload = {
     action    : 'guardarNota',
     email     : estado.usuario.email,
@@ -2448,6 +3148,7 @@ async function guardarNota() {
     contenido : contenidoHtml,
     textoPlano,
     fechaHora : new Date().toISOString(),
+    marcas    : estado.marcasActivas,   // v12
   };
 
   if (estado.horarioActivo) {
@@ -2462,7 +3163,10 @@ async function guardarNota() {
       const horarioMsg = estado.horarioActivo
         ? ` · ${HORA_SLOTS[estado.horaIdx]} (${DURACION_OPTS[estado.duracionIdx].label})`
         : '';
-      mostrarToast('✓ Nota guardada · ' + etiqueta + horarioMsg);
+      const marcasMsg = estado.marcasActivas.length > 0
+        ? ' · ' + estado.marcasActivas.map(m => m.nombre).join(', ')
+        : '';
+      mostrarToast('✓ Nota guardada · ' + etiqueta + horarioMsg + marcasMsg);
 
       estado.quill.setContents([]);
 
@@ -2474,7 +3178,9 @@ async function guardarNota() {
         document.getElementById('horario-selectores').classList.remove('visible');
       }
 
-      // Volver a HOY
+      // v12: limpiar marcas seleccionadas
+      limpiarMarcasSeleccionadas();
+
       estado.fechaVista = null;
       actualizarFechaPanel();
       cargarDatos(false);
@@ -2485,6 +3191,7 @@ async function guardarNota() {
     console.error('Error guardando nota:', err);
     mostrarToast('⚠ Error de red al guardar.');
   } finally {
+    estado.guardando = false;
     btn.disabled  = false;
     btn.innerHTML = `
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -2675,8 +3382,9 @@ function mostrarNuevoPostit() {
   btnOk.addEventListener('click', async () => {
     const texto = textarea.value.trim();
     if (!texto) { textarea.focus(); return; }
+    if (estado.guardando) return;
     btnOk.disabled = true;
-    btnOk.textContent = '…';
+    btnOk.textContent = 'Guardando…';
     await crearPostit(texto, estado.nuevoPostitColor || 'yellow');
     form.remove();
   });
@@ -2748,10 +3456,12 @@ async function confirmarBottomSheet() {
   const textarea = document.getElementById('bs-textarea');
   const texto    = textarea.value.trim();
   if (!texto) { textarea.focus(); return; }
+  // v12: semáforo
+  if (estado.guardando) return;
 
   const btnOk = document.getElementById('bs-btn-ok');
   btnOk.disabled    = true;
-  btnOk.textContent = 'Agregando…';
+  btnOk.textContent = 'Guardando…';
 
   await crearPostit(texto, estado.bsColor || 'yellow');
   cerrarBottomSheet();
@@ -2771,6 +3481,9 @@ document.addEventListener('keydown', e => {
    POSTIT CRUD
 ────────────────────────────────────────────── */
 async function crearPostit(texto, color) {
+  // v12: semáforo — previene doble submit en 4G
+  if (estado.guardando) return;
+  estado.guardando = true;
   try {
     const data = await gasPost({
       action   : 'crearPostIt',
@@ -2788,10 +3501,15 @@ async function crearPostit(texto, color) {
   } catch(err) {
     mostrarToast('⚠ Error de red al guardar PostIt.');
     console.error(err);
+  } finally {
+    estado.guardando = false;
   }
 }
 
 async function guardarEdicionPostit(id, nuevoTexto, color, cardEl) {
+  // v12: semáforo
+  if (estado.guardando) return;
+  estado.guardando = true;
   cardEl.style.opacity = '0.6';
   try {
     const data = await gasPost({ action: 'editarPostIt', email: estado.usuario?.email||'', id, texto: nuevoTexto, color });
@@ -2805,6 +3523,7 @@ async function guardarEdicionPostit(id, nuevoTexto, color, cardEl) {
   } catch(err) {
     mostrarToast('⚠ Error de red al editar PostIt.');
   } finally {
+    estado.guardando = false;
     cardEl.style.opacity = '1';
   }
 }
