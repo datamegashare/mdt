@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-title" content="Mesa">
 <link rel="apple-touch-icon" href="icon-192.png">
 <!--
-  v12.0 — Cambios respecto a v11.3:
+  v12.1 — Cambios respecto a v11.3:
   a. Registrador de tareas (desktop only):
      → Botón 🍅 en header del Anotador → panel flotante
      → Selección de etiqueta + tarea (desde hoja Tareas del Sheet)
@@ -1401,10 +1401,10 @@ a { color: inherit; text-decoration: none; }
 ───────────────────────────────────────────────── */
 #btn-registrador {
   background   : transparent;
-  border       : 1px solid rgba(255,255,255,.18);
-  color        : rgba(255,255,255,.7);
+  border       : 1px solid var(--border);
+  color        : var(--muted);
   border-radius: var(--radius-sm);
-  padding      : 5px 8px;
+  padding      : 4px 8px;
   font-size    : .85rem;
   line-height  : 1;
   cursor       : pointer;
@@ -1413,9 +1413,10 @@ a { color: inherit; text-decoration: none; }
   align-items  : center;
   gap          : 4px;
   font-family  : inherit;
+  flex-shrink  : 0;   /* fix a: no desaparece al redimensionar */
 }
-#btn-registrador:hover  { background: rgba(255,255,255,.08); color: #fff; }
-#btn-registrador.activo { color: #f97316; border-color: #f97316; background: rgba(249,115,22,.12); }
+#btn-registrador:hover  { background: var(--tag-bg); color: var(--accent); border-color: var(--accent); }
+#btn-registrador.activo { color: #f97316; border-color: #f97316; background: #fff7ed; }
 
 #panel-registrador {
   display      : none;
@@ -1440,7 +1441,10 @@ a { color: inherit; text-decoration: none; }
   padding        : 11px 14px 9px;
   border-bottom  : 1px solid var(--border);
   background     : #fafafa;
+  cursor         : grab;
+  user-select    : none;
 }
+.reg-header:active { cursor: grabbing; }
 .reg-title {
   font-size     : .67rem;
   font-weight   : 600;
@@ -1502,7 +1506,6 @@ a { color: inherit; text-decoration: none; }
   justify-content: center;
   gap          : 6px;
   transition   : all .15s;
-  margin       : 10px 14px;
 }
 .btn-reg-iniciar:hover { background: #ffedd5; }
 .btn-reg-iniciar:disabled { opacity: .5; cursor: not-allowed; }
@@ -1660,15 +1663,41 @@ a { color: inherit; text-decoration: none; }
   padding      : 3px 10px;
   border-radius: 99px;
   font-size    : .72rem;
-  font-weight  : 600;
+  font-weight  : 500;
   border       : 1.5px solid transparent;
   cursor       : pointer;
   transition   : all .15s;
   user-select  : none;
-  opacity      : .65;
+  opacity      : .45;
+  filter       : grayscale(40%);
 }
-.marca-chip:hover  { opacity: .85; }
-.marca-chip.active { opacity: 1; border-color: rgba(0,0,0,.25); box-shadow: 0 0 0 2px rgba(0,0,0,.10); }
+.marca-chip:hover  { opacity: .7; filter: none; }
+.marca-chip.active {
+  opacity    : 1;
+  filter     : none;
+  font-weight: 700;
+  border-color: rgba(0,0,0,.3);
+  box-shadow : 0 0 0 2px rgba(0,0,0,.12);
+  transform  : scale(1.05);
+}
+.btn-marcas-limpiar {
+  padding      : 3px 8px;
+  border-radius: 99px;
+  font-size    : .68rem;
+  font-weight  : 500;
+  border       : 1px solid var(--border);
+  background   : transparent;
+  color        : var(--muted);
+  cursor       : pointer;
+  transition   : all .15s;
+  white-space  : nowrap;
+  display      : none;
+  align-items  : center;
+  gap          : 3px;
+  font-family  : inherit;
+}
+.btn-marcas-limpiar.visible { display: inline-flex; }
+.btn-marcas-limpiar:hover   { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
 .marcas-empty-msg {
   font-size : .7rem;
   color     : var(--muted);
@@ -1699,7 +1728,7 @@ a { color: inherit; text-decoration: none; }
   <div class="login-box">
     <span class="login-emoji" id="login-emoji">🗂️</span>
     <div class="login-logo" id="login-logo">MESA DE TRABAJO</div>
-    <div class="login-sub">v12.0 · Workspace personal</div>
+    <div class="login-sub">v12.1 · Workspace personal</div>
     <div class="login-title">Accedé con tu cuenta Google</div>
     <div class="login-desc">
       Solo cuentas autorizadas por el administrador<br>
@@ -1732,7 +1761,7 @@ a { color: inherit; text-decoration: none; }
     <!-- hdr-logo y hdr-name se ocultan en mobile por CSS (mejora C) -->
     <span class="hdr-logo" id="hdr-logo">MESA DE TRABAJO</span>
     <span class="hdr-name" id="hdr-nombre"></span>
-    <span class="hdr-version">v12.0</span>
+    <span class="hdr-version">v12.1</span>
     <span class="hdr-sep"></span>
     <span class="hdr-refran" id="hdr-refran"></span>
     <button class="btn-instalar-pwa" id="btn-instalar-pwa" title="Instalar app" style="display:none" onclick="instalarPWA()">
@@ -1770,7 +1799,10 @@ a { color: inherit; text-decoration: none; }
 
       <!-- MARCAS — v12 -->
       <div id="marcas-wrap">
-        <div class="marcas-label">Marcas</div>
+        <div class="marcas-label" style="display:flex;align-items:center;justify-content:space-between;">
+          <span>Marcas</span>
+          <button class="btn-marcas-limpiar" id="btn-marcas-limpiar" onclick="limpiarMarcasSeleccionadas()">✕ Limpiar</button>
+        </div>
         <div id="marcas-list"><span class="marcas-empty-msg">Cargando marcas…</span></div>
       </div>
 
@@ -1926,9 +1958,11 @@ a { color: inherit; text-decoration: none; }
         <option value="">— seleccioná una tarea —</option>
       </select>
     </div>
-    <button class="btn-reg-iniciar" id="btn-reg-iniciar" onclick="iniciarTarea()">
-      ▶ Iniciar tarea
-    </button>
+    <div class="reg-section" style="border-bottom:none">
+      <button class="btn-reg-iniciar" id="btn-reg-iniciar" onclick="iniciarTarea()">
+        ▶ Iniciar tarea
+      </button>
+    </div>
   </div>
   <!-- Estado: activo -->
   <div id="reg-estado-activo" style="display:none">
@@ -2008,7 +2042,7 @@ a { color: inherit; text-decoration: none; }
 ────────────────────────────────────────────── */
 const GAS_URL    = 'https://script.google.com/macros/s/AKfycbzhcy1THlO2qwvx8clyaHRN2xAG8hX6rTsXelELjGBA83gm_358f68BHjLJbbX_tTjB/exec';
 const CLIENT_ID  = '985022387906-5h3qtmq6jifdl5jdv77o4amf9nb3mcdn.apps.googleusercontent.com';
-const VERSION_UI = 'v12.0';
+const VERSION_UI = 'v12.1';
 
 /* ──────────────────────────────────────────────
    COLORES POSTITS
@@ -2190,11 +2224,18 @@ function toggleMarca(marca, chip) {
     estado.marcasActivas.splice(idx, 1);
     chip.classList.remove('active');
   }
+  actualizarBtnLimpiarMarcas();
+}
+
+function actualizarBtnLimpiarMarcas() {
+  const btn = document.getElementById('btn-marcas-limpiar');
+  if (btn) btn.classList.toggle('visible', estado.marcasActivas.length > 0);
 }
 
 function limpiarMarcasSeleccionadas() {
   estado.marcasActivas = [];
   document.querySelectorAll('.marca-chip').forEach(c => c.classList.remove('active'));
+  actualizarBtnLimpiarMarcas();
 }
 
 /* ──────────────────────────────────────────────
@@ -2210,6 +2251,35 @@ function toggleRegistrador() {
   const btn = document.getElementById('btn-registrador');
   if (btn) btn.classList.toggle('activo', panel.classList.contains('visible'));
 }
+
+// ── Drag del panel registrador (fix d) ────────────────────────
+(function() {
+  let dragEl = null, dragOffX = 0, dragOffY = 0;
+
+  document.addEventListener('mousedown', e => {
+    const header = e.target.closest('.reg-header');
+    if (!header) return;
+    dragEl = document.getElementById('panel-registrador');
+    if (!dragEl) return;
+    const rect = dragEl.getBoundingClientRect();
+    dragOffX = e.clientX - rect.left;
+    dragOffY = e.clientY - rect.top;
+    dragEl.style.transition = 'none';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (!dragEl) return;
+    const x = Math.max(0, Math.min(window.innerWidth  - dragEl.offsetWidth,  e.clientX - dragOffX));
+    const y = Math.max(0, Math.min(window.innerHeight - dragEl.offsetHeight, e.clientY - dragOffY));
+    dragEl.style.left = x + 'px';
+    dragEl.style.top  = y + 'px';
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (dragEl) { dragEl.style.transition = ''; dragEl = null; }
+  });
+})();
 
 function renderTareasEnRegistrador(tareas) {
   estado.reg.tareas = tareas || [];
@@ -2414,17 +2484,18 @@ function finalizarTarea() {
     if (c.textContent === etiqueta) seleccionarEtiqueta(etiqueta, c);
   });
 
-  // Activar toggle horario
+  // Activar toggle horario y fijar hora/duración (fix e)
   estado.horarioActivo = true;
   const toggleEl = document.getElementById('toggle-horario');
-  if (toggleEl) toggleEl.checked = true;
-
-  // Fijar hora inicio y duración
-  const idxHora = HORA_SLOTS.indexOf(horaInicioStr);
-  estado.horaIdx     = idxHora >= 0 ? idxHora : horaSlotMasCercana();
-  estado.duracionIdx = durIdx;
-  document.getElementById('horario-selectores').classList.add('visible');
-  actualizarPickerDisplay();
+  if (toggleEl) {
+    toggleEl.checked = true;
+    // Fijar hora inicio y duración ANTES de mostrar los selectores
+    const idxHora = HORA_SLOTS.indexOf(horaInicioStr);
+    estado.horaIdx     = idxHora >= 0 ? idxHora : horaSlotMasCercana();
+    estado.duracionIdx = durIdx;
+    actualizarPickerDisplay();
+    document.getElementById('horario-selectores').classList.add('visible');
+  }
 
   // Escribir tarea en Quill
   if (estado.quill) {
