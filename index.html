@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-title" content="Mesa">
 <link rel="apple-touch-icon" href="icon-192.png">
 <!--
-  v12.1 — Cambios respecto a v11.3:
+  v12.2 — Cambios respecto a v11.3:
   a. Registrador de tareas (desktop only):
      → Botón 🍅 en header del Anotador → panel flotante
      → Selección de etiqueta + tarea (desde hoja Tareas del Sheet)
@@ -1421,18 +1421,30 @@ a { color: inherit; text-decoration: none; }
 #panel-registrador {
   display      : none;
   position     : fixed;
-  top          : calc(var(--header-h) + 56px);  /* debajo del header + panel-header anotador */
+  top          : calc(var(--header-h) + 56px);
   left         : 20px;
   width        : 256px;
   background   : var(--surface);
   border       : 1px solid var(--border);
+  border-top   : 3px solid #f97316;
   border-radius: var(--radius);
-  box-shadow   : var(--shadow-md);
+  box-shadow   : 0 8px 32px rgba(0,0,0,.18), 0 2px 8px rgba(249,115,22,.15);
   z-index      : 500;
   overflow     : hidden;
   flex-direction: column;
+  transform    : translateY(-6px);
+  opacity      : 0;
+  transition   : opacity .18s ease, transform .18s ease;
 }
-#panel-registrador.visible { display: flex; }
+#panel-registrador.visible {
+  display  : flex;
+  opacity  : 1;
+  transform: translateY(0);
+}
+/* Animación de entrada: necesita un frame para que la transición aplique */
+#panel-registrador.animating {
+  display  : flex;
+}
 
 .reg-header {
   display        : flex;
@@ -1440,7 +1452,7 @@ a { color: inherit; text-decoration: none; }
   gap            : 8px;
   padding        : 11px 14px 9px;
   border-bottom  : 1px solid var(--border);
-  background     : #fafafa;
+  background     : #fff7ed;
   cursor         : grab;
   user-select    : none;
 }
@@ -1728,7 +1740,7 @@ a { color: inherit; text-decoration: none; }
   <div class="login-box">
     <span class="login-emoji" id="login-emoji">🗂️</span>
     <div class="login-logo" id="login-logo">MESA DE TRABAJO</div>
-    <div class="login-sub">v12.1 · Workspace personal</div>
+    <div class="login-sub">v12.2 · Workspace personal</div>
     <div class="login-title">Accedé con tu cuenta Google</div>
     <div class="login-desc">
       Solo cuentas autorizadas por el administrador<br>
@@ -1761,7 +1773,7 @@ a { color: inherit; text-decoration: none; }
     <!-- hdr-logo y hdr-name se ocultan en mobile por CSS (mejora C) -->
     <span class="hdr-logo" id="hdr-logo">MESA DE TRABAJO</span>
     <span class="hdr-name" id="hdr-nombre"></span>
-    <span class="hdr-version">v12.1</span>
+    <span class="hdr-version">v12.2</span>
     <span class="hdr-sep"></span>
     <span class="hdr-refran" id="hdr-refran"></span>
     <button class="btn-instalar-pwa" id="btn-instalar-pwa" title="Instalar app" style="display:none" onclick="instalarPWA()">
@@ -2042,7 +2054,7 @@ a { color: inherit; text-decoration: none; }
 ────────────────────────────────────────────── */
 const GAS_URL    = 'https://script.google.com/macros/s/AKfycbzhcy1THlO2qwvx8clyaHRN2xAG8hX6rTsXelELjGBA83gm_358f68BHjLJbbX_tTjB/exec';
 const CLIENT_ID  = '985022387906-5h3qtmq6jifdl5jdv77o4amf9nb3mcdn.apps.googleusercontent.com';
-const VERSION_UI = 'v12.1';
+const VERSION_UI = 'v12.2';
 
 /* ──────────────────────────────────────────────
    COLORES POSTITS
@@ -2247,9 +2259,33 @@ const REG_CICLO_SEG = 25 * 60;  // 25 minutos en segundos
 function toggleRegistrador() {
   const panel = document.getElementById('panel-registrador');
   if (!panel) return;
-  panel.classList.toggle('visible');
   const btn = document.getElementById('btn-registrador');
-  if (btn) btn.classList.toggle('activo', panel.classList.contains('visible'));
+
+  if (panel.classList.contains('visible')) {
+    // Cerrar
+    panel.style.opacity   = '0';
+    panel.style.transform = 'translateY(-6px)';
+    setTimeout(() => {
+      panel.classList.remove('visible');
+      panel.style.opacity   = '';
+      panel.style.transform = '';
+    }, 180);
+    if (btn) btn.classList.remove('activo');
+  } else {
+    // Abrir con animación
+    panel.classList.add('animating');
+    panel.style.opacity   = '0';
+    panel.style.transform = 'translateY(-6px)';
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        panel.classList.add('visible');
+        panel.classList.remove('animating');
+        panel.style.opacity   = '';
+        panel.style.transform = '';
+      });
+    });
+    if (btn) btn.classList.add('activo');
+  }
 }
 
 // ── Drag del panel registrador (fix d) ────────────────────────
@@ -2489,9 +2525,9 @@ function finalizarTarea() {
   const toggleEl = document.getElementById('toggle-horario');
   if (toggleEl) {
     toggleEl.checked = true;
-    // Fijar hora inicio y duración ANTES de mostrar los selectores
-    const idxHora = HORA_SLOTS.indexOf(horaInicioStr);
-    estado.horaIdx     = idxHora >= 0 ? idxHora : horaSlotMasCercana();
+    // Fijar hora inicio: calcular slot más cercano hacia abajo (fix: indexOf falla con horas exactas no en el array)
+    const [_hh, _mm] = horaInicioStr.split(':').map(Number);
+    estado.horaIdx   = Math.floor((_hh * 60 + _mm) / 30) % HORA_SLOTS.length;
     estado.duracionIdx = durIdx;
     actualizarPickerDisplay();
     document.getElementById('horario-selectores').classList.add('visible');
