@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-title" content="Mesa">
 <link rel="apple-touch-icon" href="icon-192.png">
 <!--
-  v12.2 — Cambios respecto a v11.3:
+  v12.3 — Cambios respecto a v11.3:
   a. Registrador de tareas (desktop only):
      → Botón 🍅 en header del Anotador → panel flotante
      → Selección de etiqueta + tarea (desde hoja Tareas del Sheet)
@@ -1413,10 +1413,33 @@ a { color: inherit; text-decoration: none; }
   align-items  : center;
   gap          : 4px;
   font-family  : inherit;
-  flex-shrink  : 0;   /* fix a: no desaparece al redimensionar */
+  flex-shrink  : 0;
 }
 #btn-registrador:hover  { background: var(--tag-bg); color: var(--accent); border-color: var(--accent); }
 #btn-registrador.activo { color: #f97316; border-color: #f97316; background: #fff7ed; }
+/* Punto 3: pulsa cuando hay tarea activa y panel cerrado */
+#btn-registrador.tarea-corriendo {
+  color        : #f97316;
+  border-color : #f97316;
+  background   : #fff7ed;
+  animation    : pulse-btn-reg .9s ease infinite;
+}
+@keyframes pulse-btn-reg {
+  0%,100% { box-shadow: 0 0 0 0 rgba(249,115,22,.4); }
+  50%     { box-shadow: 0 0 0 5px rgba(249,115,22,0); }
+}
+
+/* Punto 1: overlay detrás del panel registrador */
+#reg-overlay {
+  display  : none;
+  position : fixed;
+  inset    : 0;
+  background: rgba(15,23,42,.35);
+  backdrop-filter: blur(1px);
+  z-index  : 499;
+  transition: opacity .18s ease;
+}
+#reg-overlay.visible { display: block; }
 
 #panel-registrador {
   display      : none;
@@ -1572,6 +1595,22 @@ a { color: inherit; text-decoration: none; }
   border-radius   : 99px;
   width           : 0%;
   transition      : width .5s linear;
+}
+.reg-progress-fill.esperando {
+  width    : 100%;
+  animation: pulse-progress 1s ease infinite;
+}
+@keyframes pulse-progress {
+  0%,100% { opacity: 1; }
+  50%     { opacity: .35; }
+}
+.reg-tiempo.esperando {
+  color    : #f97316;
+  animation: pulse-tiempo 1s ease infinite;
+}
+@keyframes pulse-tiempo {
+  0%,100% { opacity: 1; }
+  50%     { opacity: .4; }
 }
 .reg-progress-meta {
   display        : flex;
@@ -1740,7 +1779,7 @@ a { color: inherit; text-decoration: none; }
   <div class="login-box">
     <span class="login-emoji" id="login-emoji">🗂️</span>
     <div class="login-logo" id="login-logo">MESA DE TRABAJO</div>
-    <div class="login-sub">v12.2 · Workspace personal</div>
+    <div class="login-sub">v12.3 · Workspace personal</div>
     <div class="login-title">Accedé con tu cuenta Google</div>
     <div class="login-desc">
       Solo cuentas autorizadas por el administrador<br>
@@ -1773,7 +1812,7 @@ a { color: inherit; text-decoration: none; }
     <!-- hdr-logo y hdr-name se ocultan en mobile por CSS (mejora C) -->
     <span class="hdr-logo" id="hdr-logo">MESA DE TRABAJO</span>
     <span class="hdr-name" id="hdr-nombre"></span>
-    <span class="hdr-version">v12.2</span>
+    <span class="hdr-version">v12.3</span>
     <span class="hdr-sep"></span>
     <span class="hdr-refran" id="hdr-refran"></span>
     <button class="btn-instalar-pwa" id="btn-instalar-pwa" title="Instalar app" style="display:none" onclick="instalarPWA()">
@@ -1951,6 +1990,9 @@ a { color: inherit; text-decoration: none; }
   </div>
 </div>
 
+<!-- OVERLAY del registrador — v12.3 -->
+<div id="reg-overlay" onclick="toggleRegistrador()"></div>
+
 <!-- REGISTRADOR DE TAREAS — v12 (desktop only) -->
 <div id="panel-registrador" role="dialog" aria-label="Registrador de tareas">
   <!-- Estado: reposo -->
@@ -2054,7 +2096,7 @@ a { color: inherit; text-decoration: none; }
 ────────────────────────────────────────────── */
 const GAS_URL    = 'https://script.google.com/macros/s/AKfycbzhcy1THlO2qwvx8clyaHRN2xAG8hX6rTsXelELjGBA83gm_358f68BHjLJbbX_tTjB/exec';
 const CLIENT_ID  = '985022387906-5h3qtmq6jifdl5jdv77o4amf9nb3mcdn.apps.googleusercontent.com';
-const VERSION_UI = 'v12.2';
+const VERSION_UI = 'v12.3';
 
 /* ──────────────────────────────────────────────
    COLORES POSTITS
@@ -2257,7 +2299,8 @@ function limpiarMarcasSeleccionadas() {
 const REG_CICLO_SEG = 25 * 60;  // 25 minutos en segundos
 
 function toggleRegistrador() {
-  const panel = document.getElementById('panel-registrador');
+  const panel   = document.getElementById('panel-registrador');
+  const overlay = document.getElementById('reg-overlay');
   if (!panel) return;
   const btn = document.getElementById('btn-registrador');
 
@@ -2265,14 +2308,20 @@ function toggleRegistrador() {
     // Cerrar
     panel.style.opacity   = '0';
     panel.style.transform = 'translateY(-6px)';
+    if (overlay) overlay.classList.remove('visible');
     setTimeout(() => {
       panel.classList.remove('visible');
       panel.style.opacity   = '';
       panel.style.transform = '';
     }, 180);
-    if (btn) btn.classList.remove('activo');
+    if (btn) {
+      btn.classList.remove('activo');
+      // Punto 3: si hay tarea corriendo, volver a pulsar
+      if (estado.reg.activo) btn.classList.add('tarea-corriendo');
+    }
   } else {
-    // Abrir con animación
+    // Abrir
+    if (overlay) overlay.classList.add('visible');
     panel.classList.add('animating');
     panel.style.opacity   = '0';
     panel.style.transform = 'translateY(-6px)';
@@ -2284,7 +2333,10 @@ function toggleRegistrador() {
         panel.style.transform = '';
       });
     });
-    if (btn) btn.classList.add('activo');
+    if (btn) {
+      btn.classList.add('activo');
+      btn.classList.remove('tarea-corriendo');
+    }
   }
 }
 
@@ -2392,7 +2444,7 @@ function iniciarTarea() {
   document.getElementById('reg-tarea-nombre').textContent = etiqueta + ' · ' + tarea.tarea;
   document.getElementById('reg-ciclo-num').textContent = '1';
   const btn = document.getElementById('btn-registrador');
-  if (btn) btn.classList.add('activo');
+  if (btn) { btn.classList.add('activo'); btn.classList.remove('tarea-corriendo'); }
 
   // Asegurar panel visible
   document.getElementById('panel-registrador').classList.add('visible');
@@ -2456,14 +2508,27 @@ function reproducirAlarma() {
 function mostrarNotifCiclo() {
   const notif = document.getElementById('reg-notif');
   if (notif) notif.classList.add('visible');
-  setTimeout(() => {
-    if (notif) notif.classList.remove('visible');
-  }, 12000);
+  // Punto 2: activar estado visual "esperando decisión"
+  const elTiempo = document.getElementById('reg-tiempo');
+  const fill     = document.getElementById('reg-progress-fill');
+  if (elTiempo) elTiempo.classList.add('esperando');
+  if (fill)     fill.classList.add('esperando');
+  // Punto 3: si el panel está cerrado, pulsar el botón
+  const panel = document.getElementById('panel-registrador');
+  const btn   = document.getElementById('btn-registrador');
+  if (btn && !panel?.classList.contains('visible')) {
+    btn.classList.remove('activo');
+    btn.classList.add('tarea-corriendo');
+  }
 }
 
 function ocultarNotifCiclo() {
-  const notif = document.getElementById('reg-notif');
-  if (notif) notif.classList.remove('visible');
+  const notif    = document.getElementById('reg-notif');
+  const elTiempo = document.getElementById('reg-tiempo');
+  const fill     = document.getElementById('reg-progress-fill');
+  if (notif)    notif.classList.remove('visible');
+  if (elTiempo) elTiempo.classList.remove('esperando');
+  if (fill)     fill.classList.remove('esperando');
 }
 
 function continuarTarea() {
@@ -2483,9 +2548,10 @@ function cancelarTarea() {
 
   document.getElementById('reg-estado-activo').style.display = 'none';
   document.getElementById('reg-estado-reposo').style.display = 'block';
-
+  const overlay = document.getElementById('reg-overlay');
+  if (overlay) overlay.classList.remove('visible');
   const btn = document.getElementById('btn-registrador');
-  if (btn) btn.classList.remove('activo');
+  if (btn) { btn.classList.remove('activo'); btn.classList.remove('tarea-corriendo'); }
 
   mostrarToast('🍅 Tarea cancelada');
 }
@@ -2544,8 +2610,10 @@ function finalizarTarea() {
   document.getElementById('reg-estado-activo').style.display = 'none';
   document.getElementById('reg-estado-reposo').style.display = 'block';
   document.getElementById('panel-registrador').classList.remove('visible');
+  const overlayReg = document.getElementById('reg-overlay');
+  if (overlayReg) overlayReg.classList.remove('visible');
   const btn = document.getElementById('btn-registrador');
-  if (btn) btn.classList.remove('activo');
+  if (btn) { btn.classList.remove('activo'); btn.classList.remove('tarea-corriendo'); }
 
   mostrarToast('🍅 Tarea finalizada — anotador listo para guardar');
 
