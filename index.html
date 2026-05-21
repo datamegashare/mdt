@@ -1792,7 +1792,7 @@ a { color: inherit; text-decoration: none; }
   <div class="login-box">
     <span class="login-emoji" id="login-emoji">🗂️</span>
     <div class="login-logo" id="login-logo">MESA DE TRABAJO</div>
-    <div class="login-sub">v12.4 · Workspace personal</div>
+    <div class="login-sub">v12.5 · Workspace personal</div>
     <div class="login-title">Accedé con tu cuenta Google</div>
     <div class="login-desc">
       Solo cuentas autorizadas por el administrador<br>
@@ -1825,7 +1825,7 @@ a { color: inherit; text-decoration: none; }
     <!-- hdr-logo y hdr-name se ocultan en mobile por CSS (mejora C) -->
     <span class="hdr-logo" id="hdr-logo">MESA DE TRABAJO</span>
     <span class="hdr-name" id="hdr-nombre"></span>
-    <span class="hdr-version">v12.4</span>
+    <span class="hdr-version">v12.5</span>
     <span class="hdr-sep"></span>
     <span class="hdr-refran" id="hdr-refran"></span>
     <button class="btn-instalar-pwa" id="btn-instalar-pwa" title="Instalar app" style="display:none" onclick="instalarPWA()">
@@ -2624,7 +2624,7 @@ function finalizarTarea() {
     const ahoraHH  = String(ahora.getHours()).padStart(2,'0');
     const ahoraMM  = String(ahora.getMinutes()).padStart(2,'0');
     const horaFinStr = ahoraHH + ':' + ahoraMM;
-    const pomLabel = ` [${horaInicioStr} → ${horaFinStr}, ${durTotalMin} min]`;
+    const pomLabel = `\n[${horaInicioStr} → ${horaFinStr}, ${durTotalMin} min]`;
     const pos = estado.quill.getLength() - 1;
     estado.quill.insertText(pos, pomLabel, { italic: true, color: '#64748b' });
   }
