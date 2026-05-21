@@ -13,7 +13,14 @@
 <meta name="apple-mobile-web-app-title" content="Mesa">
 <link rel="apple-touch-icon" href="icon-192.png">
 <!--
-  v12.4 — Cambios respecto a v11.3:
+  v12.5 — Cambios respecto a v12.4:
+  1. Selectores INICIO y DURACIÓN en pasos de 15 min (INICIO: 00:00→23:45, DURACIÓN: 0:15→4:00)
+  2. Al finalizar ciclo Pomodoro, se inserta en Quill en itálica: [HH:MM → HH:MM, N min]
+  3. Fix bug temporizador: AudioContext persistente (creado en interacción) + panel se abre automáticamente al terminar ciclo
+  4. Slider de duración del ciclo (2→25 min) en panel Métricas — solo pruebas, sin persistencia
+  5. Shortcut panel Métricas: Shift+D → Shift+Ctrl+D
+  GAS: mesa_v10.gs (sin cambios)
+-->
   a. Registrador de tareas (desktop only):
      → Botón 🍅 en header del Anotador → panel flotante
      → Selección de etiqueta + tarea (desde hoja Tareas del Sheet)
@@ -1387,6 +1394,29 @@ a { color: inherit; text-decoration: none; }
 }
 .mtr-footer button:hover { color: #fff; border-color: rgba(255,255,255,.4); }
 
+/* v12.5 — Slider ciclo Pomodoro en panel métricas */
+.mtr-pom-wrap {
+  padding      : 10px 14px 8px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+.mtr-pom-label {
+  font-size    : .72rem;
+  color        : rgba(255,255,255,.65);
+  margin-bottom: 6px;
+}
+.mtr-pom-label strong { color: #fbbf24; }
+.mtr-pom-slider {
+  width           : 100%;
+  accent-color    : #d97706;
+  cursor          : pointer;
+  margin-bottom   : 4px;
+}
+.mtr-pom-hint {
+  font-size  : .62rem;
+  color      : rgba(255,255,255,.3);
+  font-style : italic;
+}
+
 @media (max-width: 720px) {
   #metrics-panel {
     bottom: 70px;
@@ -2030,11 +2060,18 @@ a { color: inherit; text-decoration: none; }
 <!-- Notificación ciclo completado -->
 <div id="reg-notif">🍅 ¿Terminaste la tarea? — <button onclick="finalizarTarea()" style="background:var(--accent);color:#fff;border:none;border-radius:4px;padding:3px 10px;font-size:.78rem;cursor:pointer;font-family:inherit;margin-left:8px;">Finalizar</button> <button onclick="continuarTarea()" style="background:transparent;color:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:3px 10px;font-size:.78rem;cursor:pointer;font-family:inherit;margin-left:4px;">Continuar</button></div>
 
-<!-- PANEL DE MÉTRICAS — v11.2 -->
+<!-- PANEL DE MÉTRICAS — v11.2 / v12.5 -->
 <div id="metrics-panel" role="dialog" aria-label="Panel de métricas GAS">
   <div class="mtr-header">
     <span class="mtr-title">⚡ Métricas GAS</span>
-    <button class="mtr-close" onclick="cerrarMetricas()" title="Cerrar (Shift+D)">✕</button>
+    <button class="mtr-close" onclick="cerrarMetricas()" title="Cerrar (Shift+Ctrl+D)">✕</button>
+  </div>
+  <!-- v12.5: Slider ciclo Pomodoro (solo para pruebas) -->
+  <div class="mtr-pom-wrap">
+    <div class="mtr-pom-label">⏱ Ciclo Pomodoro: <strong><span id="mtr-pom-val">25</span> min</strong></div>
+    <input type="range" id="mtr-pom-slider" min="2" max="25" value="25" step="1"
+           class="mtr-pom-slider" oninput="cambiarCicloPom(this.value)">
+    <div class="mtr-pom-hint">Solo para pruebas · se resetea al recargar</div>
   </div>
   <div class="mtr-summary">
     <div class="mtr-stat">
@@ -2055,7 +2092,7 @@ a { color: inherit; text-decoration: none; }
     <div id="mtr-list"><div class="mtr-empty">Sin llamadas aún. Usá la app para ver métricas.</div></div>
   </div>
   <div class="mtr-footer">
-    <span>Shift+D para abrir/cerrar</span>
+    <span>Shift+Ctrl+D para abrir/cerrar</span>
     <button onclick="limpiarMetricas()">Limpiar</button>
   </div>
 </div>
@@ -2074,7 +2111,7 @@ a { color: inherit; text-decoration: none; }
 ────────────────────────────────────────────── */
 const GAS_URL    = 'https://script.google.com/macros/s/AKfycbzhcy1THlO2qwvx8clyaHRN2xAG8hX6rTsXelELjGBA83gm_358f68BHjLJbbX_tTjB/exec';
 const CLIENT_ID  = '985022387906-5h3qtmq6jifdl5jdv77o4amf9nb3mcdn.apps.googleusercontent.com';
-const VERSION_UI = 'v12.4';
+const VERSION_UI = 'v12.5';
 
 /* ──────────────────────────────────────────────
    COLORES POSTITS
@@ -2091,16 +2128,19 @@ const POSTIT_COLORS = [
 /* ──────────────────────────────────────────────
    OPCIONES DE DURACIÓN — v11
 ────────────────────────────────────────────── */
-const DURACION_OPTS = [
-  { label: '30 min', min: 30  },
-  { label: '1h',     min: 60  },
-  { label: '1h 30',  min: 90  },
-  { label: '2h',     min: 120 },
-  { label: '2h 30',  min: 150 },
-  { label: '3h',     min: 180 },
-  { label: '3h 30',  min: 210 },
-  { label: '4h',     min: 240 },
-];
+// v12.5 — pasos de 15 min, formato 0:15 → 4:00
+const DURACION_OPTS = (() => {
+  const opts = [];
+  for (let m = 15; m <= 240; m += 15) {
+    const h   = Math.floor(m / 60);
+    const min = m % 60;
+    const label = h > 0
+      ? `${h}:${String(min).padStart(2,'0')}`
+      : `0:${String(min).padStart(2,'0')}`;
+    opts.push({ label, min });
+  }
+  return opts;
+})();
 
 /* ──────────────────────────────────────────────
    ESTADO GLOBAL
@@ -2119,7 +2159,7 @@ const estado = {
   // v11 — toggle horario
   horarioActivo    : false,
   horaIdx          : 0,
-  duracionIdx      : 1,
+  duracionIdx      : 3,    // v12.5: índice 3 = 1:00 (pasos de 15 min)
   // v12 — semáforo de sincronización
   guardando        : false,
   // v12 — marcas seleccionadas
@@ -2135,16 +2175,18 @@ const estado = {
     cicloNum    : 1,          // número de ciclo 25-min actual
     timerId     : null,       // setInterval del cronómetro
     tareas      : [],         // lista completa de tareas del Sheet
+    audioCtx    : null,       // v12.5: AudioContext persistente (evita bloqueo)
   }
 };
 
 /* ──────────────────────────────────────────────
    HORARIOS — generar array de segmentos de 30 min
 ────────────────────────────────────────────── */
+// v12.5 — pasos de 15 min (00:00 → 23:45)
 const HORA_SLOTS = (() => {
   const slots = [];
   for (let h = 0; h < 24; h++) {
-    for (let m = 0; m < 60; m += 30) {
+    for (let m = 0; m < 60; m += 15) {
       slots.push(
         String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0')
       );
@@ -2156,8 +2198,8 @@ const HORA_SLOTS = (() => {
 function horaSlotMasCercana() {
   const ahora = new Date();
   const totalMin = ahora.getHours() * 60 + ahora.getMinutes();
-  // Redondear al próximo segmento de 30 min
-  const idx = Math.ceil(totalMin / 30) % HORA_SLOTS.length;
+  // Redondear al próximo segmento de 15 min
+  const idx = Math.ceil(totalMin / 15) % HORA_SLOTS.length;
   return idx;
 }
 
@@ -2274,7 +2316,7 @@ function limpiarMarcasSeleccionadas() {
    REGISTRADOR DE TAREAS — v12 (desktop only)
 ────────────────────────────────────────────── */
 
-const REG_CICLO_SEG = 25 * 60;  // 25 minutos en segundos
+let REG_CICLO_SEG = 25 * 60;  // v12.5: let (modificable desde panel Métricas)
 
 function toggleRegistrador() {
   const panel = document.getElementById('panel-registrador');
@@ -2405,6 +2447,15 @@ function iniciarTarea() {
   estado.reg.segSegundos = 0;
   estado.reg.cicloNum   = 1;
 
+  // v12.5: crear AudioContext en respuesta a interacción del usuario (evita bloqueo futuro)
+  try {
+    if (!estado.reg.audioCtx) {
+      estado.reg.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    } else if (estado.reg.audioCtx.state === 'closed') {
+      estado.reg.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+  } catch(e) { /* sin audio */ }
+
   // Actualizar UI
   document.getElementById('reg-estado-reposo').style.display = 'none';
   document.getElementById('reg-estado-activo').style.display = 'block';
@@ -2450,8 +2501,11 @@ function actualizarCronometro() {
 }
 
 function reproducirAlarma() {
+  // v12.5: reutilizar el AudioContext creado en iniciarTarea (evita bloqueo por falta de interacción)
   try {
-    const ctx  = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = estado.reg.audioCtx;
+    if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume();
     const beep = (freq, start, dur) => {
       const osc  = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -2473,18 +2527,18 @@ function reproducirAlarma() {
 }
 
 function mostrarNotifCiclo() {
-  const notif = document.getElementById('reg-notif');
-  if (notif) notif.classList.add('visible');
-  // Punto 2: estado visual esperando decisión
-  document.getElementById('reg-tiempo')?.classList.add('esperando');
-  document.getElementById('reg-progress-fill')?.classList.add('esperando');
-  // Punto 3: si el panel está cerrado, pulsar el botón
+  // v12.5: si el panel está cerrado, abrirlo para que el usuario vea la notif y escuche la alarma
   const panel = document.getElementById('panel-registrador');
   const btn   = document.getElementById('btn-registrador');
-  if (btn && !panel?.classList.contains('visible')) {
-    btn.classList.remove('activo');
-    btn.classList.add('tarea-corriendo');
+  if (panel && !panel.classList.contains('visible')) {
+    panel.classList.add('visible');
+    if (btn) { btn.classList.add('activo'); btn.classList.remove('tarea-corriendo'); }
   }
+  const notif = document.getElementById('reg-notif');
+  if (notif) notif.classList.add('visible');
+  // Estado visual esperando decisión
+  document.getElementById('reg-tiempo')?.classList.add('esperando');
+  document.getElementById('reg-progress-fill')?.classList.add('esperando');
 }
 
 function ocultarNotifCiclo() {
@@ -2554,16 +2608,23 @@ function finalizarTarea() {
     toggleEl.checked = true;
     // Fijar hora inicio: calcular slot más cercano hacia abajo (fix: indexOf falla con horas exactas no en el array)
     const [_hh, _mm] = horaInicioStr.split(':').map(Number);
-    estado.horaIdx   = Math.floor((_hh * 60 + _mm) / 30) % HORA_SLOTS.length;
+    estado.horaIdx   = Math.floor((_hh * 60 + _mm) / 15) % HORA_SLOTS.length;
     estado.duracionIdx = durIdx;
     actualizarPickerDisplay();
     document.getElementById('horario-selectores').classList.add('visible');
   }
 
-  // Escribir tarea en Quill
+  // Escribir tarea en Quill + registro Pomodoro en itálica (v12.5)
   if (estado.quill) {
     estado.quill.setContents([]);
     estado.quill.insertText(0, tarea);
+    // Calcular hora fin real
+    const ahoraHH  = String(ahora.getHours()).padStart(2,'0');
+    const ahoraMM  = String(ahora.getMinutes()).padStart(2,'0');
+    const horaFinStr = ahoraHH + ':' + ahoraMM;
+    const pomLabel = ` [${horaInicioStr} → ${horaFinStr}, ${durTotalMin} min]`;
+    const pos = estado.quill.getLength() - 1;
+    estado.quill.insertText(pos, pomLabel, { italic: true, color: '#64748b' });
   }
 
   // Resetear registrador
@@ -2651,9 +2712,27 @@ function abrirMetricas()  { document.getElementById('metrics-panel').classList.a
 function cerrarMetricas() { document.getElementById('metrics-panel').classList.remove('visible'); }
 function limpiarMetricas() { metricas.historial = []; actualizarPanelMetricas(); }
 
-// Atajo Shift+D
+// v12.5: cambiar duración del ciclo Pomodoro desde el panel de métricas
+function cambiarCicloPom(val) {
+  const min = parseInt(val, 10);
+  REG_CICLO_SEG = min * 60;
+  const el = document.getElementById('mtr-pom-val');
+  if (el) el.textContent = min;
+  // Actualizar label "de X min" en el cronómetro
+  const cicloLabel = document.querySelector('.reg-ciclo');
+  if (cicloLabel) {
+    const numEl = document.getElementById('reg-ciclo-num');
+    cicloLabel.innerHTML = `Ciclo <span id="reg-ciclo-num">${numEl ? numEl.textContent : '1'}</span> de ${min} min`;
+  }
+  // Actualizar progress meta
+  const metaSpans = document.querySelectorAll('.reg-progress-meta span');
+  if (metaSpans.length >= 2) metaSpans[1].textContent = min + ' min';
+  mostrarToast(`⏱ Ciclo ajustado a ${min} min`);
+}
+
+// Atajo Shift+Ctrl+D (v12.5)
 document.addEventListener('keydown', e => {
-  if (e.key === 'D' && e.shiftKey && !e.ctrlKey && !e.metaKey) {
+  if (e.key === 'D' && e.shiftKey && e.ctrlKey && !e.metaKey) {
     const panel = document.getElementById('metrics-panel');
     if (panel) panel.classList.contains('visible') ? cerrarMetricas() : abrirMetricas();
   }
