@@ -2134,12 +2134,12 @@ const POSTIT_COLORS = [
 const DURACION_OPTS = (() => {
   const opts = [];
   for (let m = 15; m <= 240; m += 15) {
-    const h   = Math.floor(m / 60);
-    const min = m % 60;
+    const h    = Math.floor(m / 60);
+    const rest = m % 60;
     const label = h > 0
-      ? `${h}:${String(min).padStart(2,'0')}`
-      : `0:${String(min).padStart(2,'0')}`;
-    opts.push({ label, min });
+      ? `${h}:${String(rest).padStart(2,'0')}`
+      : `0:${String(rest).padStart(2,'0')}`;
+    opts.push({ label, min: m });  // min = total de minutos
   }
   return opts;
 })();
